@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SMSClient 需求规格说明书 v1.0-draft</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI","Microsoft YaHei","PingFang SC",sans-serif; font-size: 11px; line-height: 1.65; color: #1a1a2e; margin: 0; }
+
+  .cover { page-break-after: always; text-align: center; padding-top: 70mm; }
+  .cover .logo { font-size: 42px; font-weight: 800; color: #006857; letter-spacing: 2px; }
+  .cover .subtitle { font-size: 18px; color: #555; margin: 6px 0 34px; }
+  .cover .title { font-size: 30px; font-weight: 700; color: #1a1a2e; margin-bottom: 10px; }
+  .cover .version { font-size: 15px; color: #D31245; font-weight: 600; margin-bottom: 36px; }
+  .cover table { border-collapse: collapse; margin: 0 auto; }
+  .cover td { padding: 6px 22px; font-size: 13px; border-bottom: 1px solid #e5e7eb; }
+  .cover td:first-child { font-weight: 600; color: #555; text-align: right; }
+  .stamp { display: inline-block; margin-top: 46px; padding: 10px 30px; border: 2.5px solid #D31245; color: #D31245; font-weight: 700; font-size: 14px; border-radius: 6px; transform: rotate(-3deg); }
+
+  h1 { font-size: 19px; color: #006857; border-bottom: 3px solid #006857; padding-bottom: 5px; margin-top: 26px; page-break-after: avoid; }
+  h2 { font-size: 14.5px; color: #006857; margin-top: 18px; page-break-after: avoid; }
+  h3 { font-size: 12.5px; color: #374151; margin-top: 13px; page-break-after: avoid; }
+
+  table.data { width: 100%; border-collapse: collapse; margin: 9px 0; font-size: 10.5px; page-break-inside: auto; }
+  table.data thead { background: #006857; color: #fff; }
+  table.data th { padding: 6px 9px; text-align: left; font-weight: 600; }
+  table.data td { padding: 5px 9px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+  table.data tr:nth-child(even) { background: #f8fafb; }
+
+  code { font-family: "JetBrains Mono","Consolas",monospace; background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 10px; color: #0f172a; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 13px 15px; border-radius: 8px; font-size: 10px; line-height: 1.55; font-family: "JetBrains Mono","Consolas",monospace; white-space: pre-wrap; word-break: break-all; page-break-inside: avoid; }
+  pre .c { color: #64748b; }
+  pre .k { color: #7dd3fc; }
+  pre .s { color: #86efac; }
+  pre .t { color: #c4b5fd; }
+
+  blockquote { border-left: 4px solid #D31245; background: #fef2f2; padding: 9px 15px; margin: 11px 0; border-radius: 0 6px 6px 0; font-style: italic; }
+
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 9.5px; font-weight: 600; }
+  .b-ok { background: #dcfce7; color: #15803d; }
+  .b-fail { background: #fee2e2; color: #b42318; }
+  .b-warn { background: #fef3c7; color: #b45309; }
+  .b-todo { background: #e0e7ff; color: #4338ca; }
+
+  .arch { background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 10px; padding: 12px 16px; font-family: "JetBrains Mono",monospace; font-size: 9.5px; white-space: pre-wrap; line-height: 1.45; page-break-inside: avoid; }
+  .alert-warn { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 9px 13px; border-radius: 0 6px 6px 0; margin: 9px 0; page-break-inside: avoid; }
+  .alert-info { background: #eff6ff; border-left: 4px solid #3b82f6; padding: 9px 13px; border-radius: 0 6px 6px 0; margin: 9px 0; }
+  .decision { background: linear-gradient(135deg,#f0fdf4,#ecfdf5); border: 1.5px solid #006857; border-radius: 10px; padding: 12px 16px; margin: 11px 0; page-break-inside: avoid; }
+  .decision-title { font-weight: 700; color: #006857; font-size: 12.5px; margin-bottom: 5px; }
+  .pb { page-break-before: always; }
+  .footer { text-align: center; color: #94a3b8; font-size: 9px; margin-top: 34px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+  ul, ol { padding-left: 21px; margin: 5px 0; }
+  li { margin: 2px 0; }
+  strong { color: #0f172a; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<div class="cover">
+  <div class="logo">SMSClient</div>
+  <div class="subtitle">Windows 桌面短信收发客户端</div>
+  <div class="title">需求规格说明书 (PRD)</div>
+  <div class="version">v1.0-draft | 需求对齐待确认</div>
+  <table>
+    <tr><td>文档版本</td><td>v1.0-draft</td></tr>
+    <tr><td>编制日期</td><td>2026-09-22</td></tr>
+    <tr><td>技术栈</td><td>Tauri 2 + React 19 + Shadcn/ui + Tailwind CSS 4</td></tr>
+    <tr><td>目标硬件</td><td>Lenovo ThinkPad + Quectel EM05-CN (4G LTE)</td></tr>
+    <tr><td>状态</td><td><strong style="color:#D31245;">Q7/Q8 待用户拍板</strong></td></tr>
+  </table>
+  <div class="stamp">待审批 REVIEW</div>
+</div>
+
+<!-- ================= TOC ================= -->
+<h1>目录</h1>
+<table class="data">
+<thead><tr><th>#</th><th>章节</th><th>内容摘要</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>项目概述</td><td>定位、核心目标、排除项</td></tr>
+<tr><td>2</td><td>硬件与环境基线</td><td>本机实测数据（探针探测结果）</td></tr>
+<tr><td>3</td><td>技术决策记录</td><td>Q1~Q8 全部用户决策 + 待确认项</td></tr>
+<tr><td>4</td><td>架构设计</td><td>整体架构、SMS 通道抽象、ASTeam UI 落地</td></tr>
+<tr><td>5</td><td>数据模型</td><td>SQLite 表结构 + TypeScript 类型</td></tr>
+<tr><td>6</td><td>功能需求详述</td><td>F1~F8 八大功能模块</td></tr>
+<tr><td>7</td><td>非功能需求</td><td>性能、体积、兼容性</td></tr>
+<tr><td>8</td><td>验收标准</td><td>8 项功能验收 + 3 项非功能验收</td></tr>
+<tr><td>9</td><td>里程碑计划</td><td>M0 ~ M6 六阶段</td></tr>
+<tr><td>10</td><td>开放问题</td><td>待观察项</td></tr>
+</tbody>
+</table>
+
+<!-- ================= 1 ================= -->
+<div class="pb"></div>
+<h1>1. 项目概述</h1>
+
+<h2>1.1 项目定位</h2>
+<p>SMSClient 是一款运行在 Windows 桌面端的<strong>短信收发客户端</strong>，通过蜂窝网络（4G/LTE）收发短信，支持中文、长短信拼接、群发、送达回执等功能，可单文件 exe 分发给其他朋友使用。</p>
+
+<h2>1.2 核心目标</h2>
+<table class="data">
+<thead><tr><th>优先级</th><th>目标</th><th>验收标准</th></tr></thead>
+<tbody>
+<tr><td><span class="badge b-fail">P0</span></td><td>收发真实短信</td><td>双击 exe → 发一条短信到手机 → 手机回复 → exe 收到并显示</td></tr>
+<tr><td><span class="badge b-fail">P0</span></td><td>不影响 4G 上网</td><td>收发短信全程，已有 4G 数据连接不中断</td></tr>
+<tr><td><span class="badge b-warn">P1</span></td><td>中文支持</td><td>支持 UCS2 中文短信、&gt;70 字自动长短信拆分</td></tr>
+<tr><td><span class="badge b-warn">P1</span></td><td>本地持久化</td><td>短信存 SQLite，支持导出 CSV/文本</td></tr>
+<tr><td><span class="badge b-warn">P1</span></td><td>群发能力</td><td>多号码/通讯录导入，发送失败自动重试</td></tr>
+<tr><td><span class="badge b-ok">P2</span></td><td>送达/读取报告</td><td>AT 层回执自动解析入库</td></tr>
+<tr><td><span class="badge b-ok">P2</span></td><td>桌面通知</td><td>新短信到达时系统通知 + 声音提醒</td></tr>
+<tr><td><span class="badge b-ok">P2</span></td><td>联系人管理</td><td>简易版，支持手动添加 + CSV 导入</td></tr>
+</tbody>
+</table>
+
+<h2>1.3 不做的事（v1.0 排除）</h2>
+<ul>
+  <li>自动回复 / 规则引擎（留给 v2.0）</li>
+  <li>语音通话、RCS / iMessage</li>
+  <li>端到端加密</li>
+  <li>多 SIM 卡同时在线</li>
+</ul>
+
+<!-- ================= 2 ================= -->
+<h1>2. 硬件与环境基线</h1>
+<div class="alert-info">以下数据全部来自本机物理探针实测，非假设或推测。</div>
+
+<h2>2.1 本机硬件</h2>
+<table class="data">
+<thead><tr><th>项目</th><th>实测值</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td>机型</td><td>LENOVO 21MLA002CD (ThinkPad 系)</td><td><span class="badge b-ok">通过</span></td></tr>
+<tr><td>操作系统</td><td>Windows 11 25H2+ (Build 26200)</td><td><span class="badge b-ok">通过</span></td></tr>
+<tr><td>4G 模块</td><td>Quectel EM05-CN (USB VID_2C7C, PID_0310)</td><td><span class="badge b-ok">通过</span></td></tr>
+<tr><td>模块固件</td><td>EM05CNFDR08A12M1G_LNV (联想定制版)</td><td><span class="badge b-ok">通过</span></td></tr>
+<tr><td>当前 SIM 卡</td><td>中国联通物联网卡 (ICCID: 8986************)</td><td><span class="badge b-warn">不支持短信</span></td></tr>
+<tr><td>信号强度</td><td>48% / -83 dBm</td><td><span class="badge b-ok">通过</span></td></tr>
+<tr><td>4G 网络状态</td><td>正常 (ping 223.5.5.5 = 6-8ms)</td><td><span class="badge b-ok">通过</span></td></tr>
+<tr><td>AT 串口</td><td>当前未暴露 (USB 组合仅含 GNSS + MBIM)</td><td><span class="badge b-fail">缺失</span></td></tr>
+<tr><td>管理员权限</td><td>已具备</td><td><span class="badge b-ok">通过</span></td></tr>
+</tbody>
+</table>
+
+<h2>2.2 驱动与服务状态</h2>
+<table class="data">
+<thead><tr><th>组件</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td>Quectel GNSS Sensor (MI_00)</td><td><span class="badge b-ok">OK</span></td></tr>
+<tr><td>Quectel EM05-CN MBIM 网卡 (MI_01)</td><td><span class="badge b-ok">OK, 已连接</span></td></tr>
+<tr><td>qcser 串口驱动 (oem140.inf)</td><td><span class="badge b-ok">已安装</span>（等待 MI_03/04/05 接口）</td></tr>
+<tr><td>Quectel Mini DPR Service</td><td><span class="badge b-ok">Running, AutoStart</span></td></tr>
+<tr><td>WWAN AutoConfig</td><td><span class="badge b-ok">Running</span></td></tr>
+<tr><td>COM 串口实例</td><td><span class="badge b-fail">0 个</span>（AT 口未暴露）</td></tr>
+</tbody>
+</table>
+
+<h2>2.3 MBIM SMS 能力（已验证）</h2>
+<pre><span class="c">─── netsh mbn show capability / show sms ───</span>
+SMS 功能:           PDU 接收 <span class="s">OK</span>, PDU 发送 <span class="s">OK</span>
+短信格式:           PDU
+<span class="k">服务中心地址:</span>      +8613010344500
+可用消息计数:       50
+WinRT SmsDevice2:   <span class="s">API 可用</span>
+准备就绪可以发短信: 否  <span class="c">&lt;- 联通物联网卡限制（非程序问题）</span></pre>
+
+<h2>2.4 USB 组合与 AT 口分析</h2>
+
+<h3>当前 USB 组合 (PID_0310, 仅 2 个接口)</h3>
+<pre><span class="c">MI_00 → Quectel GNSS Sensor Device   (Sensor 类)</span>
+<span class="c">MI_01 → Quectel EM05-CN MBIM 网卡    (Net 类, 上网用)</span>
+<span class="k">缺少 MI_03/04/05 (无 AT 串口)</span></pre>
+
+<h3>目标 USB 组合 (PID_0312, 5 个接口)</h3>
+<pre>MI_00 → Quectel GNSS Sensor   <span class="c">(Sensor, 保留)</span>
+MI_01 → Quectel EM05-CN MBIM  <span class="c">(Net, 保留, 上网不中断)</span>
+MI_03 → Quectel DM DIAG 串口   <span class="c">(qcser, COM 口)</span>
+MI_04 → Quectel NMEA GPS 串口  <span class="c">(qcser, COM 口)</span>
+<span class="s">MI_05 → Quectel AT2 命令串口   (qcser, COM 口) ★ 核心</span></pre>
+
+<div class="alert-warn"><strong>切换代价：</strong>PID_0310→0312 切换需 AT 指令或 USB 控制传输，切换瞬间 4G 会断开重连约 10-30 秒。qusbccgp.inf 同时支持两个 PID，驱动就绪。</div>
+
+<!-- ================= 3 ================= -->
+<div class="pb"></div>
+<h1>3. 技术决策记录</h1>
+
+<h2>3.1 已确认的决策</h2>
+<table class="data">
+<thead><tr><th>编号</th><th>问题</th><th>决策</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td>Q1</td><td>允许 AT 口探测实验</td><td>已执行探测，结果见 2.4 节</td><td><span class="badge b-ok">已完成</span></td></tr>
+<tr><td>Q2</td><td>技术栈选择</td><td>Tauri 2 + React 19 + Shadcn/ui + Tailwind CSS 4</td><td><span class="badge b-ok">已确认</span></td></tr>
+<tr><td>Q3</td><td>v1.0 功能范围</td><td>全部推荐功能（收发、UCS2、长短信、群发、回执、SQLite、通知、联系人）</td><td><span class="badge b-ok">已确认</span></td></tr>
+<tr><td>Q4.1</td><td>不影响 4G 上网</td><td>硬约束</td><td><span class="badge b-ok">已确认</span></td></tr>
+<tr><td>Q4.2</td><td>可分发给朋友</td><td>确认（影响打包策略：需自包含 exe，约 15-25MB）</td><td><span class="badge b-ok">已确认</span></td></tr>
+<tr><td>Q5</td><td>SIM 卡情况</td><td>联通物联网卡不能发短信；下月换移动卡，兼容任意运营商</td><td><span class="badge b-ok">已记录</span></td></tr>
+<tr><td>Q6</td><td>验收标准</td><td>双击 exe 能收发真实短信 + 不影响上网</td><td><span class="badge b-ok">已确认</span></td></tr>
+</tbody>
+</table>
+
+<h2>3.2 待确认决策（阻塞项）</h2>
+<div class="decision">
+  <div class="decision-title">Q7 — SMS 通道策略（影响 M3 阶段实现方式）</div>
+  <table class="data">
+  <thead><tr><th>选项</th><th>描述</th><th>推荐</th></tr></thead>
+  <tbody>
+  <tr><td><strong>A</strong></td><td>先用 WinRT SMS API（零风险，无需动 USB 组合，上网完全不受影响），架构预留 AT 通道接口，v1.1 再决定是否开 AT 口</td><td><span class="badge b-ok">推荐</span></td></tr>
+  <tr><td>B</td><td>现在就做 USB 组合切换实验（接受一次性断网 10-30 秒，拿到 AT 口全能力）</td><td></td></tr>
+  <tr><td>C</td><td>等下个月换移动卡测试时一起做</td><td></td></tr>
+  </tbody>
+  </table>
+</div>
+
+<div class="decision">
+  <div class="decision-title">Q8 — 技术栈最终确认</div>
+  <p><strong>Tauri 2 + React 19 + Shadcn/ui + Tailwind CSS 4</strong></p>
+  <p style="margin:4px 0;">ASTeam UI 设计令牌 100% 直用 | 单文件 exe 约 15-25MB | 原生 WebView2 渲染</p>
+  <p style="color:#b45309;font-weight:600;">请回复「Q7 选 A，Q8 确认」以解除阻塞。</p>
+</div>
+
+<!-- ================= 4 ================= -->
+<h1>4. 架构设计</h1>
+
+<h2>4.1 整体架构</h2>
+<div class="arch">+---------------------------------------------------------------+
+|                  SMSClient.exe (Tauri 2)                       |
+|                                                                |
+|  +----------------------------------------------------------+  |
+|  |        Frontend (React 19 + Shadcn/ui)                   |  |
+|  |  [收件箱] [写短信] [已发送] [联系人] [群发] [设置]      |  |
+|  +-------------------------+--------------------------------+  |
+|                            | invoke / listen                  |
+|  +-------------------------v--------------------------------+  |
+|  |        Backend (Rust, Tauri Commands)                    |  |
+|  |  +-----------------------------------------------+       |  |
+|  |  | SMS Engine (可插拔通道)                       |       |  |
+|  |  |  [WinRT SMS]         [AT Serial Port]         |       |  |
+|  |  |   通道 A, 零风险       通道 B, 预留            |       |  |
+|  |  |                       需 USB 组合切换          |       |  |
+|  |  +-----------------------------------------------+       |  |
+|  |  [SQLite Storage]  [Contacts Manager]  [Notification]    |  |
+|  +----------------------------------------------------------+  |
++---------------------------------------------------------------+</div>
+
+<h2>4.2 SMS 通道抽象层</h2>
+<pre><span class="c">// 通道 trait —— 无论 WinRT 还是 AT，上层逻辑统一</span>
+<span class="k">pub trait</span> <span class="t">SmsChannel</span>: Send + Sync {
+    <span class="k">async fn</span> send_sms(&amp;self, to: &amp;str, msg: &amp;str) -&gt; Result&lt;MessageId&gt;;
+    <span class="k">async fn</span> get_inbox(&amp;self) -&gt; Result&lt;Vec&lt;SmsMessage&gt;&gt;;
+    <span class="k">async fn</span> delete_message(&amp;self, id: MessageId) -&gt; Result&lt;()&gt;;
+    <span class="k">async fn</span> get_signal_strength(&amp;self) -&gt; Result&lt;SignalInfo&gt;;
+    <span class="k">async fn</span> get_sim_info(&amp;self) -&gt; Result&lt;SimInfo&gt;;
+}</pre>
+<ul>
+  <li><strong>通道 A (WinRT SMS):</strong> 通过 <code>windows</code> crate 调用 <code>Windows.Devices.Sms.SmsDevice2</code>，无需 COM 口，不影响上网</li>
+  <li><strong>通道 B (AT Serial):</strong> 通过 <code>tokio-serial</code> 调用 AT+CMGS/CMGL/CMGR，需 MI_05 AT 口就绪</li>
+</ul>
+
+<h2>4.3 ASTeam UI 设计落地</h2>
+<table class="data">
+<thead><tr><th>设计令牌</th><th>值</th><th>用途</th></tr></thead>
+<tbody>
+<tr><td>--asteam-brand-primary</td><td><strong style="color:#006857;">#006857 (深绿)</strong></td><td>主按钮、导航高亮</td></tr>
+<tr><td>--asteam-brand-accent</td><td><strong style="color:#D31245;">#D31245 (品牌红)</strong></td><td>品牌标识</td></tr>
+<tr><td>--asteam-success</td><td><strong style="color:#15803D;">#15803D</strong></td><td>发送成功</td></tr>
+<tr><td>--asteam-error</td><td><strong style="color:#B42318;">#B42318</strong></td><td>发送失败</td></tr>
+<tr><td>--asteam-warning</td><td><strong style="color:#B45309;">#B45309</strong></td><td>信号弱、SIM 状态警告</td></tr>
+<tr><td>--asteam-info</td><td><strong style="color:#0369A1;">#0369A1</strong></td><td>提示信息</td></tr>
+</tbody>
+</table>
+<p><strong>主题:</strong> Light/Dark 双主题 | <strong>圆角:</strong> sm 6px / md 8px / lg 12px / pill 999px | <strong>字体:</strong> Inter + Noto Sans SC + JetBrains Mono | <strong>动画:</strong> 120/180/240ms ease-out</p>
+
+<!-- ================= 5 ================= -->
+<div class="pb"></div>
+<h1>5. 数据模型</h1>
+
+<h2>5.1 SQLite 表结构</h2>
+<pre><span class="c">-- 联系人表</span>
+<span class="k">CREATE TABLE</span> contacts (
+    id          <span class="t">INTEGER</span> PRIMARY KEY AUTOINCREMENT,
+    name        <span class="t">TEXT</span> NOT NULL,
+    phone       <span class="t">TEXT</span> NOT NULL UNIQUE,
+    note        <span class="t">TEXT</span>,
+    created_at  <span class="t">DATETIME</span> DEFAULT CURRENT_TIMESTAMP
+);
+
+<span class="c">-- 短信表</span>
+<span class="k">CREATE TABLE</span> messages (
+    id          <span class="t">INTEGER</span> PRIMARY KEY AUTOINCREMENT,
+    direction   <span class="t">TEXT</span> CHECK(direction IN (<span class="s">'in'</span>, <span class="s">'out'</span>)) NOT NULL,
+    phone       <span class="t">TEXT</span> NOT NULL,
+    content     <span class="t">TEXT</span> NOT NULL,
+    encoding    <span class="t">TEXT</span> DEFAULT <span class="s">'UCS2'</span>,
+    is_long     <span class="t">BOOLEAN</span> DEFAULT 0,
+    part_index  <span class="t">INTEGER</span> DEFAULT 1,
+    part_total  <span class="t">INTEGER</span> DEFAULT 1,
+    group_id    <span class="t">TEXT</span>,
+    status      <span class="t">TEXT</span> DEFAULT <span class="s">'pending'</span>,
+    error       <span class="t">TEXT</span>,
+    timestamp   <span class="t">DATETIME</span> DEFAULT CURRENT_TIMESTAMP
+);
+
+<span class="c">-- 群发任务表</span>
+<span class="k">CREATE TABLE</span> broadcast_tasks (
+    id          <span class="t">INTEGER</span> PRIMARY KEY AUTOINCREMENT,
+    content     <span class="t">TEXT</span> NOT NULL,
+    total       <span class="t">INTEGER</span> NOT NULL,
+    sent        <span class="t">INTEGER</span> DEFAULT 0,
+    failed      <span class="t">INTEGER</span> DEFAULT 0,
+    status      <span class="t">TEXT</span> DEFAULT <span class="s">'pending'</span>,
+    created_at  <span class="t">DATETIME</span> DEFAULT CURRENT_TIMESTAMP
+);
+
+<span class="c">-- 设置表</span>
+<span class="k">CREATE TABLE</span> settings (
+    key   <span class="t">TEXT</span> PRIMARY KEY,
+    value <span class="t">TEXT</span> NOT NULL
+);</pre>
+
+<h2>5.2 核心数据类型 (TypeScript)</h2>
+<pre><span class="k">interface</span> <span class="t">SmsMessage</span> {
+  id: <span class="t">number</span>;
+  direction: <span class="s">'in'</span> | <span class="s">'out'</span>;
+  phone: <span class="t">string</span>;
+  content: <span class="t">string</span>;
+  encoding: <span class="t">string</span>;
+  isLong: <span class="t">boolean</span>;
+  status: <span class="s">'pending'</span> | <span class="s">'sent'</span> | <span class="s">'delivered'</span> | <span class="s">'read'</span> | <span class="s">'failed'</span>;
+  timestamp: <span class="t">string</span>;
+}
+
+<span class="k">interface</span> <span class="t">SimInfo</span> {
+  carrier: <span class="t">string</span>;
+  iccid: <span class="t">string</span>;
+  signalStrength: <span class="t">number</span>;   <span class="c">// 0-100</span>
+  signalDbm: <span class="t">number</span>;        <span class="c">// -120 to -30</span>
+  networkType: <span class="t">string</span>;      <span class="c">// 'LTE' | 'HSPA+' | '3G' | '2G'</span>
+}</pre>
+
+<!-- ================= 6 ================= -->
+<h1>6. 功能需求详述</h1>
+
+<h2>F1. 收件箱 (P0)</h2>
+<ul>
+  <li>会话视图：按联系人/号码聚合短信</li>
+  <li>实时监听新短信（WinRT 事件回调 → Tauri emit → 前端 listen）</li>
+  <li>短信详情：内容、时间戳、送达状态、编码方式</li>
+  <li>搜索：按号码或内容关键词</li>
+  <li>分页加载（虚拟滚动，应对大量短信）</li>
+</ul>
+
+<h2>F2. 写短信 / 发送 (P0)</h2>
+<ul>
+  <li>收件人输入：手动输入号码 + 联系人选择器</li>
+  <li>内容输入：支持中文</li>
+  <li>长短信自动拆分：&gt;70 中文字符自动 UCS2 拆分，显示"已拆为 N 条"</li>
+  <li>发送确认：二次确认弹窗</li>
+  <li>发送状态：实时更新 (pending → sent → delivered)</li>
+  <li>重发：失败后一键重发</li>
+</ul>
+
+<h2>F3. 群发 (P1)</h2>
+<ul>
+  <li>收件人来源：手动多选 + CSV 导入 + 通讯录选择</li>
+  <li>进度显示：已发/总数/失败数</li>
+  <li>失败重试：自动重试 2 次，间隔 5 秒</li>
+  <li>防骚扰限速：可配置每分钟最大发送条数（默认 10 条/分钟）</li>
+</ul>
+
+<h2>F4~F8. 其他功能</h2>
+<table class="data">
+<thead><tr><th>模块</th><th>优先级</th><th>关键点</th></tr></thead>
+<tbody>
+<tr><td>F4. 送达/读取报告</td><td><span class="badge b-ok">P2</span></td><td>AT 层 SRI 报告 + WinRT DeliveryStatus 枚举</td></tr>
+<tr><td>F5. 本地持久化</td><td><span class="badge b-warn">P1</span></td><td>SQLite + CSV 导出 + 文本备份</td></tr>
+<tr><td>F6. 桌面通知</td><td><span class="badge b-ok">P2</span></td><td>Windows toast 通知 + 声音提醒</td></tr>
+<tr><td>F7. 联系人管理</td><td><span class="badge b-ok">P2</span></td><td>增删改 + CSV 导入</td></tr>
+<tr><td>F8. 设置页面</td><td><span class="badge b-warn">P1</span></td><td>通道切换、通知、限速、导出、主题</td></tr>
+</tbody>
+</table>
+
+<!-- ================= 7 ================= -->
+<div class="pb"></div>
+<h1>7. 非功能需求</h1>
+<table class="data">
+<thead><tr><th>需求</th><th>指标</th></tr></thead>
+<tbody>
+<tr><td>启动时间</td><td>&lt; 3 秒（冷启动到界面可交互）</td></tr>
+<tr><td>exe 体积</td><td>&lt; 30 MB（Tauri 单文件自包含）</td></tr>
+<tr><td>内存占用</td><td>&lt; 150 MB（运行态）</td></tr>
+<tr><td>短信延迟</td><td>点击到网络提交 &lt; 5 秒</td></tr>
+<tr><td>兼容性</td><td>Windows 10 1903+ / Windows 11</td></tr>
+<tr><td>分发</td><td>单文件 exe，无需安装，无需运行时依赖</td></tr>
+</tbody>
+</table>
+
+<!-- ================= 8 ================= -->
+<h1>8. 验收标准</h1>
+
+<h2>8.1 功能验收（用真实 SIM 卡测试）</h2>
+<table class="data">
+<thead><tr><th>#</th><th>测试用例</th><th>预期结果</th></tr></thead>
+<tbody>
+<tr><td>AC-1</td><td>双击 exe 启动</td><td>主界面正常加载，显示 SIM 状态和信号强度</td></tr>
+<tr><td>AC-2</td><td>发送一条中文短信到测试手机</td><td>手机在 10 秒内收到短信</td></tr>
+<tr><td>AC-3</td><td>测试手机回复短信</td><td>exe 在 10 秒内收到，显示在收件箱</td></tr>
+<tr><td>AC-4</td><td>发送一条 &gt;70 字中文短信</td><td>自动拆分为 N 条，手机依次收到完整内容</td></tr>
+<tr><td>AC-5</td><td>群发到 3 个号码</td><td>全部发送成功，进度条正确</td></tr>
+<tr><td>AC-6</td><td>收发短信期间持续 ping 外网</td><td>4G 数据连接不中断（无丢包）</td></tr>
+<tr><td>AC-7</td><td>SQLite 数据持久化</td><td>重启 exe 后历史短信仍在</td></tr>
+<tr><td>AC-8</td><td>导出 CSV</td><td>打开 CSV 文件内容完整正确</td></tr>
+</tbody>
+</table>
+
+<h2>8.2 非功能验收</h2>
+<table class="data">
+<thead><tr><th>#</th><th>测试项</th><th>预期</th></tr></thead>
+<tbody>
+<tr><td>NAC-1</td><td>exe 体积</td><td>&lt; 30 MB</td></tr>
+<tr><td>NAC-2</td><td>首次启动</td><td>&lt; 3 秒</td></tr>
+<tr><td>NAC-3</td><td>换 SIM 卡后</td><td>程序自动识别新卡，无需手动配置</td></tr>
+</tbody>
+</table>
+
+<!-- ================= 9 ================= -->
+<h1>9. 里程碑计划</h1>
+<table class="data">
+<thead><tr><th>阶段</th><th>内容</th><th>前提</th></tr></thead>
+<tbody>
+<tr><td><span class="badge b-fail">M0</span></td><td>PRD 确认 + Q7/Q8 拍板</td><td><strong>当前位置</strong></td></tr>
+<tr><td>M1</td><td>Tauri 工程初始化 + ASTeam UI 移植 + 设计令牌落地</td><td>M0 完成</td></tr>
+<tr><td>M2</td><td>SQLite 数据层 + 联系人 CRUD</td><td>M1 完成</td></tr>
+<tr><td>M3</td><td>SMS 通道集成（WinRT / AT）</td><td>M2 完成</td></tr>
+<tr><td>M4</td><td>收件箱/写短信/已发送页面联调</td><td>M3 完成</td></tr>
+<tr><td>M5</td><td>群发 + 回执 + 通知</td><td>M4 完成</td></tr>
+<tr><td>M6</td><td>端到端验收（换移动 SIM 卡实测）</td><td>M5 完成</td></tr>
+</tbody>
+</table>
+
+<!-- ================= 10 ================= -->
+<h1>10. 开放问题</h1>
+<table class="data">
+<thead><tr><th>#</th><th>问题</th><th>影响范围</th><th>状态</th></tr></thead>
+<tbody>
+<tr><td>Q7</td><td>SMS 通道选 WinRT 先行还是 AT 先行</td><td>M3 实现方式</td><td><span class="badge b-todo">待确认</span></td></tr>
+<tr><td>Q8</td><td>技术栈 Tauri 2 是否确认</td><td>全局架构</td><td><span class="badge b-todo">待确认</span></td></tr>
+<tr><td>R1</td><td>换移动卡后是否需要自动切换运营商配置</td><td>SMSC 地址</td><td>待观察</td></tr>
+<tr><td>R2</td><td>长短信最大拆分长度（中文 67 字/条 vs 英文 153 字/条）</td><td>发送逻辑</td><td>已知约束</td></tr>
+</tbody>
+</table>
+
+<div class="footer">
+  SMSClient PRD v1.0-draft | Generated by ASTeam AI | 2026-09-22 | A4 Print Ready
+</div>
+
+</body>
+</html>

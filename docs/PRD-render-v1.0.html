@@ -1,0 +1,190 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+body{font-family:'Segoe UI',sans-serif;margin:40px;line-height:1.6;color:#333}
+h1{color:#006857;border-bottom:3px solid #006857;padding-bottom:10px}
+h2{color:#D31245;margin-top:30px}
+h3{color:#0369A1}
+table{border-collapse:collapse;width:100%;margin:15px 0}
+th,td{border:1px solid #ddd;padding:8px;text-align:left}
+th{background:#006857;color:white}
+tr:nth-child(even){background:#f5f5f5}
+.confirmed{background:#15803D;color:white;padding:3px 8px;border-radius:4px;font-weight:bold}
+.pending{background:#B45309;color:white;padding:3px 8px;border-radius:4px}
+code{background:#f0f0f0;padding:2px 6px;border-radius:3px;font-family:'JetBrains Mono',monospace}
+.stamp{position:fixed;top:20px;right:20px;background:#15803D;color:white;padding:10px 20px;border-radius:8px;font-size:18px;font-weight:bold;transform:rotate(-5deg)}
+.milestone{background:#e8f5e9;border-left:4px solid #006857;padding:10px 15px;margin:10px 0}
+</style>
+</head>
+<body>
+<div class="stamp">&#10004; APPROVED</div>
+<h1>SMSClient 需求规格说明书 (PRD)</h1>
+<p><strong>版本:</strong> v1.0 | <strong>日期:</strong> 2026-09-22 | <strong>状态:</strong> <span class="confirmed">已确认 (Q1~Q8 全部拍板)</span></p>
+
+<h2>1. 项目概述</h2>
+<h3>1.1 项目定位</h3>
+<p>SMSClient 是一款运行在 Windows 桌面端的 <strong>短信收发客户端</strong>，通过蜂窝网络(4G/LTE)收发短信，支持中文、长短信拼接、群发、送达回执等功能，可单文件 exe 分发给其他朋友使用。</p>
+
+<h3>1.2 核心目标</h3>
+<table>
+<tr><th>优先级</th><th>目标</th><th>验收标准</th></tr>
+<tr><td>P0</td><td>收发真实短信</td><td>双击 exe 发送短信到手机，手机回复，exe 收到并显示</td></tr>
+<tr><td>P0</td><td>不影响 4G 上网</td><td>收发短信全程，已有的 4G 数据连接(ping 223.5.5.5)不中断</td></tr>
+<tr><td>P1</td><td>中文支持</td><td>支持 UCS2 中文短信、70 字自动长短信拆分拼接</td></tr>
+<tr><td>P1</td><td>本地持久化</td><td>短信存 SQLite，支持导出 CSV/文本</td></tr>
+<tr><td>P1</td><td>群发能力</td><td>多号码/通讯录导入，发送失败自动重试</td></tr>
+<tr><td>P2</td><td>送达/读取报告</td><td>AT 层回执自动解析入库</td></tr>
+<tr><td>P2</td><td>桌面通知</td><td>新短信到达时系统通知+声音提醒</td></tr>
+<tr><td>P2</td><td>联系人管理</td><td>简易版，支持手动添加+CSV 导入</td></tr>
+</table>
+
+<h2>2. 硬件与环境基线（物理探针实测）</h2>
+<h3>2.1 本机硬件</h3>
+<table>
+<tr><th>项目</th><th>实测值</th></tr>
+<tr><td>机型</td><td>LENOVO 21MLA002CD (ThinkPad X1 Carbon)</td></tr>
+<tr><td>操作系统</td><td>Windows 11 25H2+ (Build 26200)</td></tr>
+<tr><td>4G 模块</td><td>Quectel EM05-CN (USB VID_2C7C, PID_0310)</td></tr>
+<tr><td>模块固件</td><td>EM05CNFDR08A12M1G_LNV (联想定制版)</td></tr>
+<tr><td><strong>当前 SIM 卡</strong></td><td><strong style="color:#006857">中国移动卡</strong> (2026-09-22 已换装；原联通物联网卡不支持短信)</td></tr>
+<tr><td><strong>运营商</strong></td><td><strong>CMCC</strong> (探针实测：不漫游，MBIM 已连接)</td></tr>
+<tr><td><strong>信号强度</strong></td><td><strong>35% / -91 dBm</strong> (移动卡实测 2026-09-22)</td></tr>
+<tr><td>4G 网络状态</td><td>&#10004; 正常 (ping 223.5.5.5 = 6-8ms)</td></tr>
+<tr><td>MBIM 接口</td><td>&#10004; 已连接"手机网络" (GSM, LTE)</td></tr>
+<tr><td>AT 串口</td><td>&#10006; 当前未暴露 (USB 组合仅含 GNSS + MBIM)</td></tr>
+<tr><td>管理员权限</td><td>&#10004; 已具备</td></tr>
+</table>
+
+<h3>2.2 MBIM SMS 能力（已验证）</h3>
+<table>
+<tr><th>能力</th><th>状态</th></tr>
+<tr><td>SMS 功能</td><td>PDU 接收, PDU 发送</td></tr>
+<tr><td>短信格式</td><td>PDU</td></tr>
+<tr><td>WinRT SmsDevice2 API</td><td>&#10004; 可用</td></tr>
+<tr><td>准备就绪发短信</td><td>&#10004; 移动卡可正常收发</td></tr>
+</table>
+
+<h3>2.3 USB 组合与 AT 口分析</h3>
+<p><strong>当前 USB 组合 (PID_0310, 2 个接口):</strong></p>
+<ul>
+<li>MI_00 → Quectel GNSS Sensor Device (Sensor 口, 保留)</li>
+<li>MI_01 → Quectel EM05-CN MBIM 网卡 (Net 口, 保留, 上网不中断)</li>
+</ul>
+<p><strong>目标 USB 组合 (PID_0312, 5 个接口, qcser.inf 已支持):</strong></p>
+<ul>
+<li>MI_00 → Quectel GNSS Sensor Device (Sensor 口, 保留)</li>
+<li>MI_01 → Quectel EM05-CN MBIM 网卡 (Net 口, 保留, 上网不中断)</li>
+<li>MI_03 → Quectel DM DIAG 串口 (qcser 驱动, COM 口)</li>
+<li>MI_04 → Quectel NMEA GPS 串口 (qcser 驱动, COM 口)</li>
+<li><strong>MI_05 → Quectel AT2 命令串口 (qcser 驱动, COM 口, 通道 B)</strong></li>
+</ul>
+
+<h2>3. 技术决策记录</h2>
+<h3>3.1 用户确认的决策</h3>
+<table>
+<tr><th>编号</th><th>问题</th><th>决策</th><th>状态</th></tr>
+<tr><td>Q1</td><td>允许 AT 口探测实验</td><td>已执行探测</td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td>Q2</td><td>技术栈选择</td><td><strong>Tauri 2 + React 19 + Shadcn/ui + Tailwind CSS 4</strong></td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td>Q3</td><td>v1.0 功能范围</td><td>接受全部推荐功能</td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td>Q4.1</td><td>不影响 4G 上网</td><td>硬约束</td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td>Q4.2</td><td>可分发给朋友</td><td>确认，单文件 exe</td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td><strong>Q5</strong></td><td>SIM 卡情况</td><td><strong>已执行：2026-09-22 换装中国移动卡</strong></td><td><span class="confirmed">&#10004; 已执行</span></td></tr>
+<tr><td>Q6</td><td>验收标准</td><td>双击 exe 能收发真实短信+不影响上网</td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td><strong>Q7</strong></td><td>AT 口策略</td><td><strong>选 A：先用 WinRT SMS API，AT 通道预留</strong></td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+<tr><td><strong>Q8</strong></td><td>技术栈确认</td><td><strong>Tauri 2 + React + Shadcn/ui + Tailwind 4</strong></td><td><span class="confirmed">&#10004; 已确认</span></td></tr>
+</table>
+
+<h2>4. 架构设计</h2>
+<h3>4.1 整体架构</h3>
+<pre><code>
+┌─────────────────────────────────────────────────────────────┐
+│                   SMSClient.exe (Tauri 2)                    │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │             Frontend (React + Shadcn/ui)               │ │
+│  │   /inbox  /compose  /sent  /contacts  /broadcast       │ │
+│  └────────────────────────┬───────────────────────────────┘ │
+│                           │ invoke / listen                  │
+│  ┌────────────────────────┴───────────────────────────────┐ │
+│  │             Backend (Rust, Tauri Commands)              │ │
+│  │  ┌───────────────────────────────────────────────┐     │ │
+│  │  │ SMS Engine (可插拔通道)                        │     │ │
+│  │  │  ┌─────────────┐  ┌────────────────────┐     │     │ │
+│  │  │  │ WinRT SMS   │  │ AT Serial Port     │     │     │ │
+│  │  │  │ (通道 A)     │  │ (通道 B, 预留)     │     │     │ │
+│  │  │  └─────────────┘  └────────────────────┘     │     │ │
+│  │  └───────────────────────────────────────────────┘     │ │
+│  │  ┌─────────┐  ┌──────────┐  ┌──────────────┐         │ │
+│  │  │ SQLite  │  │ Contacts │  │ Notification │         │ │
+│  │  └─────────┘  └──────────┘  └──────────────┘         │ │
+│  └────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<h3>4.2 SMS 通道抽象</h3>
+<pre><code>pub trait SmsChannel: Send + Sync {
+    async fn send_sms(&amp;self, to: &amp;str, message: &amp;str) -&gt; Result&lt;MessageId&gt;;
+    async fn get_inbox(&amp;self) -&gt; Result&lt;Vec&lt;SmsMessage&gt;&gt;;
+    async fn delete_message(&amp;self, id: MessageId) -&gt; Result&lt;()&gt;;
+    async fn get_signal_strength(&amp;self) -&gt; Result&lt;SignalInfo&gt;;
+    async fn get_sim_info(&amp;self) -&gt; Result&lt;SimInfo&gt;;
+}</code></pre>
+
+<h2>5. 功能需求</h2>
+<table>
+<tr><th>编号</th><th>功能</th><th>优先级</th><th>描述</th></tr>
+<tr><td>F1</td><td>收件箱</td><td>P0</td><td>会话视图、实时监听新短信、搜索、虚拟滚动</td></tr>
+<tr><td>F2</td><td>写短信/发送</td><td>P0</td><td>收件人选择、中文支持、长短信自动拆分、重发</td></tr>
+<tr><td>F3</td><td>群发</td><td>P1</td><td>多号码/CSV 导入、进度显示、失败重试、限速</td></tr>
+<tr><td>F4</td><td>送达/读取报告</td><td>P2</td><td>AT 通道: +CSMP/+CNMI；WinRT: DeliveryStatus</td></tr>
+<tr><td>F5</td><td>本地持久化</td><td>P1</td><td>SQLite 存储、导出 CSV/文本</td></tr>
+<tr><td>F6</td><td>桌面通知</td><td>P2</td><td>Windows 原生 toast、可配置声音</td></tr>
+<tr><td>F7</td><td>联系人管理</td><td>P2</td><td>手动添加/编辑/删除、CSV 导入</td></tr>
+<tr><td>F8</td><td>设置页面</td><td>-</td><td>通道切换、通知开关、限速配置、主题切换</td></tr>
+</table>
+
+<h2>6. 验收标准</h2>
+<h3>6.1 功能验收</h3>
+<table>
+<tr><th>#</th><th>测试用例</th><th>预期结果</th></tr>
+<tr><td>AC-1</td><td>双击 exe 启动</td><td>主界面正常加载，显示 SIM 状态和信号强度</td></tr>
+<tr><td>AC-2</td><td>发送一条中文短信到测试手机</td><td>手机 10 秒内收到短信</td></tr>
+<tr><td>AC-3</td><td>测试手机回复短信</td><td>exe 10 秒内收到，显示在收件箱</td></tr>
+<tr><td>AC-4</td><td>发送 >70 字中文短信</td><td>自动拆分 N 条，手机依次收到完整内容</td></tr>
+<tr><td>AC-5</td><td>群发 3 个号码</td><td>全部发送成功，进度条正常</td></tr>
+<tr><td>AC-6</td><td>收发短信期间持续 ping 外网</td><td>4G 数据连接不中断(无丢包)</td></tr>
+<tr><td>AC-7</td><td>SQLite 数据持久化</td><td>重启 exe 后历史短信仍在</td></tr>
+<tr><td>AC-8</td><td>导出 CSV</td><td>打开 CSV 文件内容完整正确</td></tr>
+</table>
+
+<h2>7. 里程碑计划</h2>
+<table>
+<tr><th>阶段</th><th>内容</th><th>状态</th></tr>
+<tr><td class="milestone"><strong>M0</strong></td><td>PRD 确认 + Q7/Q8 拍板 + SIM 卡换装</td><td><span class="confirmed">&#10004; 已完成 2026-09-22</span></td></tr>
+<tr><td>M1</td><td>Tauri 工程初始化 + ASTeam UI 移植 + 设计令牌落地</td><td><span class="pending">待启动 (Swarm)</span></td></tr>
+<tr><td>M2</td><td>SQLite 数据层 + 联系人 CRUD</td><td>待 M1</td></tr>
+<tr><td>M3</td><td>WinRT SMS 通道集成(收发核心)</td><td>待 M2</td></tr>
+<tr><td>M4</td><td>收件箱/写短信/已发送页面联调</td><td>待 M3</td></tr>
+<tr><td>M5</td><td>群发 + 回执 + 通知</td><td>待 M4</td></tr>
+<tr><td>M6</td><td>端到端验收(移动 SIM 卡实测)</td><td>待 M5</td></tr>
+</table>
+
+<h2>8. 技术栈确认</h2>
+<table>
+<tr><th>层级</th><th>技术选型</th><th>版本</th></tr>
+<tr><td>桌面框架</td><td><strong>Tauri</strong></td><td>2.x</td></tr>
+<tr><td>后端语言</td><td><strong>Rust</strong></td><td>1.70+</td></tr>
+<tr><td>前端框架</td><td><strong>React</strong></td><td>19.x</td></tr>
+<tr><td>UI 组件库</td><td><strong>Shadcn/ui</strong></td><td>latest</td></tr>
+<tr><td>CSS 框架</td><td><strong>Tailwind CSS</strong></td><td>4.x</td></tr>
+<tr><td>数据库</td><td><strong>SQLite</strong></td><td>3.x</td></tr>
+<tr><td>打包</td><td>单文件 exe</td><td>< 30MB</td></tr>
+</table>
+
+<hr>
+<p style="text-align:center;color:#666;font-size:12px">
+文档生成时间: 2026-09-22 17:12:56 | ASTeam AI | 物理探针验收通过
+</p>
+</body>
+</html>

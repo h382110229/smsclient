@@ -1,0 +1,32 @@
+/* ============================================
+   ASTeam Design Tokens - Tailwind CSS 4.x
+   SMSClient v0.1.0 | 2026-09-22
+   ============================================ */
+
+@theme {
+  /* ---- Brand ---- */
+  --color-brand-primary: #006857;
+  --color-brand-accent: #D31245;
+
+  /* ---- Semantic ---- */
+  --color-success: #15803D;
+  --color-error: #B42318;
+  --color-warning: #B45309;
+  --color-info: #0369A1;
+
+  /* ---- Radius (px) ---- */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* ---- Font ---- */
+  --font-sans: "Inter", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* ---- Animation tokens ---- */
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --duration-slow: 240ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>SMSClient 需求确认单 v1.0</title>
+<style>
+@page { size: A4; margin: 16mm 14mm; }
+* { box-sizing: border-box; }
+body { font-family: "Microsoft YaHei","Noto Sans SC",sans-serif; color:#1a1a1a; font-size:11px; line-height:1.6; margin:0; }
+h1 { text-align:center; font-size:24px; color:#006857; margin:0 0 4px; }
+.sub { text-align:center; color:#666; font-size:12px; margin-bottom:18px; }
+.badge { display:inline-block; border:2px solid #006857; color:#006857; font-weight:700; padding:4px 18px; border-radius:999px; letter-spacing:2px; font-size:12px; margin-bottom:10px; }
+.cover { text-align:center; margin-top:60px; page-break-after:always; }
+.meta { display:inline-block; text-align:left; border:1px solid #ddd; border-radius:8px; padding:12px 26px; font-size:11px; margin-top:16px; }
+.meta div { margin:5px 0; }
+h2 { font-size:15px; color:#006857; border-left:5px solid #006857; padding-left:8px; margin:22px 0 8px; }
+table { border-collapse:collapse; width:100%; margin:6px 0 12px; }
+th { background:#006857; color:#fff; font-weight:600; }
+th,td { border:1px solid #d5d5d5; padding:5px 9px; text-align:left; vertical-align:top; }
+tr:nth-child(even) td { background:#f4f8f7; }
+.ok { color:#15803D; font-weight:700; }
+.warn { color:#B45309; font-weight:700; }
+.note { background:#fff8e6; border:1px solid #B45309; border-radius:8px; padding:8px 12px; margin:8px 0; }
+.sign td { height:70px; }
+.footer { text-align:center; color:#999; font-size:9px; margin-top:28px; border-top:1px solid #eee; padding-top:8px; }
+</style>
+</head>
+<body>
+<div class="cover">
+  <div class="badge">REQUIREMENT CONFIRMATION</div>
+  <h1>SMSClient 需求确认单</h1>
+  <div class="sub">Windows 桌面短信收发客户端 · Q1~Q8 全部拍板 · 阻塞项清零</div>
+  <div class="meta">
+    <div><b>文档编号：</b>SMSClient-PRD-CONFIRM-v1.0</div>
+    <div><b>确认日期：</b>2026-09-22</div>
+    <div><b>确认状态：</b><span class="ok">✅ 已确认 APPROVED</span></div>
+    <div><b>完整 PRD：</b>docs/SMSClient-PRD-v1.0.pdf / docs/PRD.md</div>
+    <div><b>生成方：</b>ASTeam AI · 物理探针验收</div>
+  </div>
+</div>
+
+<h2>一、项目范围确认</h2>
+<table>
+<tr><th>项目</th><th>确认内容</th></tr>
+<tr><td>产品定位</td><td>Windows 桌面短信收发客户端，单文件 exe 分发给朋友使用</td></tr>
+<tr><td>核心功能</td><td>收发短信(F1/F2) · 群发(F3) · 送达回执(F4) · SQLite 持久化(F5) · 桌面通知(F6) · 联系人(F7) · 设置(F8)</td></tr>
+<tr><td>排除范围</td><td>❌ 自动回复 · ❌ 语音通话 · ❌ RCS/iMessage · ❌ 端到端加密 · ❌ 多 SIM 同时在线</td></tr>
+<tr><td>验收标准</td><td>AC-1~AC-8 + NAC-1~NAC-3（共 11 项，详见 PRD §8）</td></tr>
+</table>
+
+<h2>二、硬件环境确认（物理探针实测）</h2>
+<table>
+<tr><th>项目</th><th>实测值</th></tr>
+<tr><td>4G 模块</td><td>Quectel EM05-CN (VID_2C7C, PID_0310) · 固件 EM05CNFDR08A12M1G_LNV</td></tr>
+<tr><td>SIM 卡</td><td>中国联通物联网卡 · ICCID: 8986************ · CHN-UNICOM</td></tr>
+<tr><td>信号/网络</td><td>48% / -83 dBm · <span class="ok">正常 (ping 6-8ms)</span> · MBIM 已连接 GSM/LTE</td></tr>
+<tr><td>AT 串口</td><td><span class="warn">未暴露</span>（USB 组合仅 GNSS + MBIM，AT 口需切 PID_0312）</td></tr>
+<tr><td>WinRT SmsDevice2</td><td><span class="ok">✅ 可用</span> · SMS 功能: PDU 收发 · SMSC: +8613010344500</td></tr>
+<tr><td>发短信就绪</td><td><span class="warn">否 ← 联通物联网卡不支持，换移动卡解决（非程序问题）</span></td></tr>
+<tr><td>热插拔</td><td><span class="ok">✅ 可行</span>（PnP Status=OK，M3 处理设备生命周期 +2~3 天）</td></tr>
+</table>
+
+<h2>三、技术决策确认（Q1~Q8 全部拍板）</h2>
+<table>
+<tr><th>编号</th><th>问题</th><th>决策结果</th></tr>
+<tr><td>Q1</td><td>AT 口探测实验</td><td><span class="ok">✅ 已执行</span></td></tr>
+<tr><td>Q2</td><td>技术栈</td><td><b>Tauri 2 + React 19 + Shadcn/ui + Tailwind CSS 4</b></td></tr>
+<tr><td>Q3</td><td>v1.0 功能范围</td><td><span class="ok">✅ 接受全部推荐功能</span></td></tr>
+<tr><td>Q4</td><td>上网/分发</td><td>✅ 硬约束不断网 · ✅ 自包含 exe</td></tr>
+<tr><td>Q5</td><td>SIM 卡情况</td><td>联通物联网卡不能发；下月换移动卡</td></tr>
+<tr><td>Q6</td><td>验收标准</td><td>双击 exe 收发真实短信 + 不影响 4G 上网</td></tr>
+<tr><td><b>Q7</b></td><td>SMS 通道策略</td><td><span class="ok">✅ 选 A：WinRT 先行，AT 预留</span></td></tr>
+<tr><td><b>Q8</b></td><td>技术栈确认</td><td><span class="ok">✅ 已确认</span></td></tr>
+</table>
+<div class="note"><b>阻塞项清零：</b>Q7/Q8 已拍板，M0 完成（2026-09-22），M1 开发正式解锁。</div>
+
+<h2>四、里程碑与交付物确认</h2>
+<table>
+<tr><th>阶段</th><th>内容</th><th>状态</th></tr>
+<tr><td>M0</td><td>PRD 确认 + Q7/Q8 拍板</td><td><span class="ok">✅ 已完成 2026-09-22</span></td></tr>
+<tr><td>M1</td><td>Tauri 工程初始化 + ASTeam UI 移植 + 设计令牌落地</td><td>← 当前</td></tr>
+<tr><td>M2</td><td>SQLite 数据层 + 联系人 CRUD</td><td>M1 后</td></tr>
+<tr><td>M3</td><td>WinRT SMS 通道集成 + 设备热插拔生命周期</td><td>M2 后</td></tr>
+<tr><td>M4</td><td>收件箱/写短信/已发送 页面联调</td><td>M3 后</td></tr>
+<tr><td>M5</td><td>群发 + 回执 + 通知</td><td>M4 后</td></tr>
+<tr><td>M6</td><td>端到端验收（换移动 SIM 卡实测）</td><td>M5 后</td></tr>
+</table>
+
+<h2>五、开放问题（非阻塞）</h2>
+<table>
+<tr><th>#</th><th>问题</th><th>状态</th></tr>
+<tr><td>R1</td><td>换移动卡后自动切换运营商配置</td><td><span class="warn">待观察</span></td></tr>
+<tr><td>R2</td><td>长短信拆分（中文 67 字/条）</td><td>已知约束</td></tr>
+</table>
+
+<h2>六、确认签署</h2>
+<table>
+<tr><th>角色</th><th>姓名/标识</th><th>日期</th><th>意见</th></tr>
+<tr><td>需求方（用户）</td><td></td><td>2026-09-22</td><td>✅ 已确认（Q7/Q8 拍板）</td></tr>
+<tr><td>承接方（ASTeam AI）</td><td>ASTeam Agent 2.0.1</td><td>2026-09-22</td><td>✅ 需求对齐完成，进入 M1</td></tr>
+</table>
+
+<div class="footer">SMSClient 需求确认单 v1.0 · 生成于 2026-09-22 · ASTeam AI · 物理探针验收通过</div>
+</body>
+</html>
