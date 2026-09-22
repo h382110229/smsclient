@@ -14,6 +14,7 @@ pub mod db;
 pub mod messages;
 pub mod models;
 pub mod settings;
+pub mod sms;
 
 use tauri::State;
 
