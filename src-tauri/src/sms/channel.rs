@@ -5,26 +5,27 @@
 
 use crate::models::{ChannelStatus, SimInfo};
 
-/// 设备级消息 ID (SmsSendMessageResult.MessageReferenceNumbers / ISmsMessage.Id)。
+/// 设备级消息 ID
 pub type MessageId = u32;
 
-/// 从设备读到的原始短信（device-level，非 DB 持久化）。
+/// 从设备读到的原始短信
 #[derive(Debug, Clone)]
 pub struct ReceivedSms {
     pub from: String,
     pub body: String,
-    /// ISO-8601 UTC 字符串 'YYYY-MM-DD HH:MM:SS'
+    /// ISO-8601 UTC 字符串
     pub timestamp: String,
-    /// 设备侧消息 ID（用于 delete_message）。
+    /// 设备侧消息 ID（用于 delete_message）
     pub device_id: MessageId,
 }
 
 /// 通道 trait — 无论 WinRT 还是 AT，上层逻辑统一 (PRD §4.2)。
+#[allow(async_fn_in_trait)]
 pub trait SmsChannel: Send + Sync {
-    /// 发送短信，成功返回平台消息引用 ID。
+    /// 发送短信到指定号码，成功返回平台消息引用 ID。
     async fn send_sms(&self, to: &str, message: &str) -> Result<MessageId, String>;
 
-    /// 从设备消息存储读取收件（仅入站文本消息）。
+    /// 读取设备上的全部收件（仅文本短信）。
     async fn get_inbox(&self) -> Result<Vec<ReceivedSms>, String>;
 
     /// 删除设备侧消息。
