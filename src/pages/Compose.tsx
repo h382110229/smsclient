@@ -1,14 +1,12 @@
 /**
  * SMSClient — Compose Page (写短信)
- * Worker C「前端骨架」— 2026-09-22
- *
- * 发送表单骨架：手机号 + 内容 + 发送按钮。
+ * M2 更新: 发送调用 tauri-bridge 封装；发送后写入 SQLite messages 表。
  * 硬约束: 收发短信不得中断 4G 数据连接。
- * M2 将接入 WinRT SmsDevice2 发送逻辑。
+ * M3 将接入 WinRT SmsDevice2 真实发送。
  */
 import { useState, useCallback } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { Send, CheckCircle, AlertCircle } from "lucide-react";
+import { sendSms } from "@/lib/tauri-bridge";
 
 export function Compose() {
   const [phone, setPhone] = useState("");
@@ -27,11 +25,8 @@ export function Compose() {
     setSending(true);
     setResult(null);
     try {
-      const msgId = await invoke<string>("send_sms", {
-        phone: phone.trim(),
-        message: body.trim(),
-      });
-      setResult({ type: "success", message: `发送成功! ID: ${msgId}` });
+      const msgId = await sendSms(phone.trim(), body.trim());
+      setResult({ type: "success", message: `发送成功! 已入库, ID: ${msgId}` });
       setBody(""); // 清空输入
     } catch (e) {
       setResult({ type: "error", message: `发送失败: ${e}` });

@@ -1,6 +1,7 @@
 /**
  * SMSClient — Utility Functions
  * Worker C「前端骨架」— 2026-09-22
+ * M2 更新: formatTimestamp 支持 ISO-8601 字符串 (PRD §5 timestamp)。
  *
  * cn() — clsx + tailwind-merge 组合，Shadcn/ui 标准工具。
  */
@@ -12,9 +13,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** 格式化 Unix 时间戳为本地可读字符串 */
-export function formatTimestamp(ts: number): string {
-  const date = new Date(ts * 1000);
+/**
+ * 格式化时间戳为本地可读字符串。
+ * 支持两种输入：
+ * - ISO-8601 字符串 'YYYY-MM-DD HH:MM:SS'（PRD §5 SQLite DATETIME）
+ * - Unix 秒数（兼容旧数据）
+ */
+export function formatTimestamp(ts: string | number): string {
+  const date = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts.replace(" ", "T"));
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",
@@ -43,4 +49,21 @@ export function maskPhone(phone: string): string {
 /** 生成 UUID v4 (无连字符) */
 export function uuid(): string {
   return crypto.randomUUID().replace(/-/g, "");
+}
+
+/** 手机号规范化（与 Rust contacts::normalize_phone 逻辑对齐） */
+export function normalizePhone(raw: string): string {
+  let s = raw.trim().replace(/[\s\-()]/g, "");
+  if (s.startsWith("+86") && s.length - 3 >= 11) {
+    s = s.slice(3);
+  } else if (s.startsWith("86") && s.length - 2 >= 11) {
+    s = s.slice(2);
+  }
+  return s;
+}
+
+/** 简单手机号验证（中国大陆 11 位或短号如 10086） */
+export function isValidPhone(phone: string): boolean {
+  const p = normalizePhone(phone);
+  return /^1\d{10}$/.test(p) || /^\d{3,6}$/.test(p);
 }

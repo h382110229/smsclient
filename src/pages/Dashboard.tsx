@@ -2,10 +2,13 @@
  * SMSClient — Dashboard Page (首页 / 仪表盘)
  * Worker C「前端骨架」— 2026-09-22
  *
- * M1 关键验收页：调用全部四个 mock command，验证 invoke 通路打通。
- * 深浅色主题切换生效 + ASTeam 品牌色可见。
+ * M2 更新：
+ * - SimInfo 使用 PRD §5.2 新字段（signalDbm / signalStrength 0-100 / phoneNumber）
+ * - SmsMessage 使用 PRD §5.2（phone / content / direction / status）
+ * - 发送卡片改为手动触发，避免每次加载自动发送真实短信（M3 WinRT 后会真发）
+ * - DB-backed: 收件箱数据来自 SQLite messages 表
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Link } from "react-router-dom";
 import {
@@ -15,15 +18,20 @@ import {
   Send,
   MessageCircle,
   AlertCircle,
+  Play,
 } from "lucide-react";
 import type { SimInfo, SmsMessage } from "@/lib/types";
-import { formatTimestamp } from "@/lib/utils";
+import { formatTimestamp, signalToPercent } from "@/lib/utils";
 
 export function Dashboard() {
   const [simInfo, setSimInfo] = useState<SimInfo | null>(null);
   const [signal, setSignal] = useState<number | null>(null);
   const [inbox, setInbox] = useState<SmsMessage[]>([]);
-  const [sendResult, setSendResult] = useState<string>("");
+  const [sendResult, setSendResult] = useState<{
+    ok: boolean;
+    msg: string;
+  } | null>(null);
+  const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,14 +48,6 @@ export function Dashboard() {
         setSimInfo(sim);
         setSignal(sig);
         setInbox(msgs);
-
-        // Verify send_sms command
-        const result = await invoke<string>("send_sms", {
-          phone: "10086",
-          message: "M1 invoke 验证测试",
-        });
-        if (cancelled) return;
-        setSendResult(result);
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -60,13 +60,29 @@ export function Dashboard() {
     };
   }, []);
 
+  const handleSendTest = useCallback(async () => {
+    setSending(true);
+    setSendResult(null);
+    try {
+      const result = await invoke<string>("send_sms", {
+        phone: "10086",
+        message: "SMSClient 自检测试 (M2)",
+      });
+      setSendResult({ ok: true, msg: `发送成功，ID: ${result}` });
+    } catch (e) {
+      setSendResult({ ok: false, msg: `发送失败: ${e}` });
+    } finally {
+      setSending(false);
+    }
+  }, []);
+
   return (
     <div className="space-y-8">
       {/* Page Header */}
       <div>
         <h2 className="text-2xl font-bold text-foreground">仪表盘</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          SMSClient M1 Scaffold · 所有 mock command 调用验证
+          SMSClient M2 · SQLite 数据层 + 联系人 CRUD
         </p>
       </div>
 
@@ -103,6 +119,13 @@ export function Dashboard() {
                 <Row label="运营商" value={simInfo.carrier} />
                 <Row label="网络" value={simInfo.networkType} />
                 <Row label="ICCID" value={simInfo.iccid} mono />
+                {simInfo.phoneNumber && (
+                  <Row label="号码" value={simInfo.phoneNumber} mono />
+                )}
+                <Row
+                  label="信号"
+                  value={`${simInfo.signalStrength}% (${simInfo.signalDbm} dBm)`}
+                />
               </div>
             ) : (
               <EmptyText />
@@ -119,39 +142,54 @@ export function Dashboard() {
             {signal !== null ? (
               <div className="space-y-2">
                 <p className="text-3xl font-bold font-mono text-foreground">
-                  {signal} <span className="text-sm font-normal text-muted-foreground">dBm</span>
+                  {signal}{" "}
+                  <span className="text-sm font-normal text-muted-foreground">
+                    dBm
+                  </span>
                 </p>
                 <div className="w-full h-2 rounded-pill bg-muted overflow-hidden">
                   <div
                     className="h-full rounded-pill bg-success transition-all"
                     style={{
-                      width: `${Math.min(100, Math.max(0, ((signal + 100) / 50) * 100))}%`,
+                      width: `${signalToPercent(signal)}%`,
                     }}
                   />
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  ≈ {signalToPercent(signal)}% 满格
+                </p>
               </div>
             ) : (
               <EmptyText />
             )}
           </Card>
 
-          {/* Send SMS Card */}
+          {/* Send SMS Card (M2: 手动触发) */}
           <Card
             icon={<Send size={20} />}
             iconColor="text-brand-accent"
             title="发送验证"
             subtitle="invoke(&quot;send_sms&quot;)"
           >
-            {sendResult ? (
-              <div className="space-y-1 text-sm">
-                <p className="text-success font-medium">✓ 发送成功 (Mock)</p>
-                <p className="text-muted-foreground font-mono text-xs break-all">
-                  {sendResult}
+            <div className="space-y-2">
+              <button
+                onClick={handleSendTest}
+                disabled={sending}
+                className="flex items-center gap-2 px-3 py-2 rounded-md bg-brand-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+              >
+                <Play size={12} />
+                {sending ? "发送中..." : "发送测试短信到 10086"}
+              </button>
+              {sendResult && (
+                <p
+                  className={`text-sm font-medium ${
+                    sendResult.ok ? "text-success" : "text-destructive"
+                  }`}
+                >
+                  {sendResult.msg}
                 </p>
-              </div>
-            ) : (
-              <EmptyText />
-            )}
+              )}
+            </div>
           </Card>
 
           {/* Inbox Card */}
@@ -159,19 +197,19 @@ export function Dashboard() {
             icon={<Inbox size={20} />}
             iconColor="text-warning"
             title="收件箱"
-            subtitle="invoke(&quot;get_inbox&quot;)"
+            subtitle="DB: messages (direction=in)"
           >
-            {inbox.length > 0 ? (
+            {loading ? (
+              <EmptyText />
+            ) : (
               <div className="space-y-1 text-sm">
                 <p className="text-foreground font-medium">
-                  {inbox.length} 条未处理消息
+                  {inbox.length} 条消息
                 </p>
                 <p className="text-muted-foreground text-xs">
-                  未读: {inbox.filter((m) => !m.read).length}
+                  未读: {inbox.filter((m) => m.status !== "read").length}
                 </p>
               </div>
-            ) : (
-              <EmptyText />
             )}
           </Card>
         </div>
@@ -200,14 +238,14 @@ export function Dashboard() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground font-mono">
-                      {msg.address}
+                      {msg.phone}
                     </span>
-                    {!msg.read && (
+                    {msg.status !== "read" && (
                       <span className="w-2 h-2 rounded-full bg-brand-accent" />
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground truncate mt-0.5">
-                    {msg.body}
+                    {msg.content}
                   </p>
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">
@@ -265,11 +303,21 @@ function Card({
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-muted-foreground">{label}</span>
-      <span className={`text-foreground ${mono ? "font-mono text-xs" : ""}`}>
+      <span
+        className={`text-foreground ${mono ? "font-mono text-xs" : ""}`}
+      >
         {value}
       </span>
     </div>
@@ -282,8 +330,6 @@ function StatusDot({ color }: { color: string }) {
 
 function EmptyText() {
   return (
-    <p className="text-sm text-muted-foreground italic">
-      数据加载中...
-    </p>
+    <p className="text-sm text-muted-foreground italic">数据加载中...</p>
   );
 }
