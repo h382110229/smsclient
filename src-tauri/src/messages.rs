@@ -136,7 +136,13 @@ fn map_err(e: rusqlite::Error) -> String {
 /// 获取收件箱（direction='in'，最新在前，上限 200 条）
 #[tauri::command]
 pub fn get_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> {
-    db.with(|c| list(c, Some("in"), 200)).map_err(map_err)
+    db.with(|c| {
+        // 先从 WinRT 设备同步短信到 DB（非致命，失败仅 eprintln）
+        if let Err(e) = crate::sms::sync_inbox(c) {
+            eprintln!("[smsclient] 设备短信同步失败（非致命）: {e}");
+        }
+        list(c, Some("in"), 200)
+    }).map_err(map_err)
 }
 
 /// 获取已发送（direction='out'，最新在前，上限 200 条）
