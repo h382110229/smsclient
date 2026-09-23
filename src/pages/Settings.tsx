@@ -3,10 +3,21 @@
  * Worker C「前端骨架」— 2026-09-22
  *
  * M2 更新 (2026-09-22)：主题与通道偏好持久化到 SQLite settings 表（PRD F8）。
- * settings key：theme / preferred_channel（值统一 TEXT）。
+ * M3 更新 (2026-09-23)：通知开关/声音、送达回执、群发限速设置。
+ * settings key：theme / preferred_channel / notify_enabled / notify_sound
+ *              / delivery_report / broadcast_interval
  */
-import { useEffect, useState } from "react";
-import { Monitor, Wifi, FileText, Bell, HardDrive } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import {
+  Monitor,
+  Wifi,
+  FileText,
+  Bell,
+  HardDrive,
+  Volume2,
+  VolumeX,
+  Radio,
+} from "lucide-react";
 import type { ThemeMode } from "@/lib/types";
 import { getSetting, setSetting } from "@/lib/tauri-bridge";
 
@@ -16,32 +27,100 @@ const CHANNEL_OPTIONS = [
   { value: "at", label: "AT 串口（预留 · 需 USB PID_0312 切换）" },
 ] as const;
 
+/** 群发限速选项 */
+const BROADCAST_RATE_OPTIONS = [
+  { value: "3000", label: "20 条/分钟" },
+  { value: "6000", label: "10 条/分钟（默认）" },
+  { value: "10000", label: "6 条/分钟" },
+  { value: "15000", label: "4 条/分钟" },
+] as const;
+
+/* ------------------------------------------------------------------ */
+/*  Toggle Switch                                                     */
+/* ------------------------------------------------------------------ */
+function ToggleSwitch({
+  pressed,
+  onChange,
+  label,
+}: {
+  pressed: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      role="switch"
+      aria-checked={pressed}
+      aria-label={label}
+      onClick={() => onChange(!pressed)}
+      className={`
+        relative w-10 h-5 rounded-full transition-colors duration-200
+        ${pressed ? "bg-brand-primary" : "bg-muted"}
+      `}
+    >
+      <span
+        className={`
+          absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow
+          transition-transform duration-200
+          ${pressed ? "translate-x-5" : "translate-x-0"}
+        `}
+      />
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Settings Page                                                     */
+/* ------------------------------------------------------------------ */
 export function Settings() {
   const [darkMode, setDarkMode] = useState(() =>
     document.documentElement.classList.contains("dark"),
   );
   const [theme, setTheme] = useState<ThemeMode>("light");
   const [channel, setChannel] = useState<string>("winrt");
+  const [notifyEnabled, setNotifyEnabled] = useState(true);
+  const [notifySound, setNotifySound] = useState(true);
+  const [deliveryReport, setDeliveryReport] = useState(false);
+  const [broadcastInterval, setBroadcastInterval] = useState("6000");
 
-  // 启动时读取持久化设置
+  /* ---- load persisted settings ---- */
   useEffect(() => {
     (async () => {
       try {
-        const [t, ch] = await Promise.all([
+        const [t, ch, ne, ns, dr, bi] = await Promise.all([
           getSetting("theme"),
           getSetting("preferred_channel"),
+          getSetting("notify_enabled"),
+          getSetting("notify_sound"),
+          getSetting("delivery_report"),
+          getSetting("broadcast_interval"),
         ]);
         if (t === "dark" || t === "light") setTheme(t);
         if (ch === "winrt" || ch === "at") setChannel(ch);
-        // 应用持久化主题
-        const dark = t === "dark";
-        setDarkMode(dark);
-        document.documentElement.classList.toggle("dark", dark);
+        setDarkMode(t === "dark");
+        document.documentElement.classList.toggle("dark", t === "dark");
+        if (ne !== null) setNotifyEnabled(ne === "true");
+        if (ns !== null) setNotifySound(ns === "true");
+        if (dr !== null) setDeliveryReport(dr === "true");
+        if (bi !== null && bi !== "null") setBroadcastInterval(bi);
       } catch (e) {
         console.error("Failed to load settings:", e);
       }
     })();
   }, []);
+
+  /* ---- persist helpers ---- */
+  const persistBool = useCallback(
+    async (key: string, value: boolean, setter: (v: boolean) => void) => {
+      setter(value);
+      try {
+        await setSetting(key, String(value));
+      } catch (e) {
+        console.error(`Failed to persist ${key}:`, e);
+      }
+    },
+    [],
+  );
 
   const applyTheme = async (next: ThemeMode) => {
     setTheme(next);
@@ -61,6 +140,15 @@ export function Settings() {
       await setSetting("preferred_channel", value);
     } catch (e) {
       console.error("Failed to persist channel:", e);
+    }
+  };
+
+  const changeBroadcastInterval = async (value: string) => {
+    setBroadcastInterval(value);
+    try {
+      await setSetting("broadcast_interval", value);
+    } catch (e) {
+      console.error("Failed to persist broadcast_interval:", e);
     }
   };
 
@@ -125,13 +213,76 @@ export function Settings() {
           <span className="text-xs text-muted-foreground">自动</span>
         </SettingRow>
 
+        {/* Notification toggle */}
+        <SettingRow
+          icon={<Bell size={18} className="text-brand-primary" />}
+          title="通知开关"
+          description="收到新短信时显示桌面通知"
+        >
+          <ToggleSwitch
+            pressed={notifyEnabled}
+            onChange={(v) =>
+              persistBool("notify_enabled", v, setNotifyEnabled)
+            }
+            label="通知开关"
+          />
+        </SettingRow>
+
+        {/* Notification sound — only visible when notifications are on */}
+        {notifyEnabled && (
+          <SettingRow
+            icon={
+              notifySound ? (
+                <Volume2 size={18} className="text-success" />
+              ) : (
+                <VolumeX size={18} className="text-muted-foreground" />
+              )
+            }
+            title="通知声音"
+            description="收到新短信时播放提示音"
+          >
+            <ToggleSwitch
+              pressed={notifySound}
+              onChange={(v) =>
+                persistBool("notify_sound", v, setNotifySound)
+              }
+              label="通知声音"
+            />
+          </SettingRow>
+        )}
+
         {/* Delivery Report */}
         <SettingRow
-          icon={<Bell size={18} className="text-brand-accent" />}
+          icon={<FileText size={18} className="text-brand-accent" />}
           title="送达回执"
-          description="请求运营商返回送达确认（M5 实现）"
+          description="请求运营商返回送达确认，匹配已发送消息更新状态"
         >
-          <span className="text-xs text-muted-foreground">关闭</span>
+          <ToggleSwitch
+            pressed={deliveryReport}
+            onChange={(v) =>
+              persistBool("delivery_report", v, setDeliveryReport)
+            }
+            label="送达回执"
+          />
+        </SettingRow>
+
+        {/* Broadcast Rate Limit */}
+        <SettingRow
+          icon={<Radio size={18} className="text-destructive" />}
+          title="群发限速"
+          description="每分钟最大发送条数，防止运营商限流"
+        >
+          <select
+            value={broadcastInterval}
+            onChange={(e) => changeBroadcastInterval(e.target.value)}
+            className="px-2 py-1.5 rounded-md border border-border bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {BROADCAST_RATE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         </SettingRow>
 
         {/* Device Info */}
@@ -149,6 +300,9 @@ export function Settings() {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  SettingRow                                                        */
+/* ------------------------------------------------------------------ */
 function SettingRow({
   icon,
   title,

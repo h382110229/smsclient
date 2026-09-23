@@ -10,6 +10,7 @@
 //! - M2: 联系人 CRUD + 消息/设置存取
 //! - M1: 四个 mock command + 7 页面
 
+pub mod broadcast;
 pub mod contacts;
 pub mod db;
 pub mod messages;
@@ -101,6 +102,7 @@ pub fn run() {
             }
             Ok(())
         })
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             // M3: 通过活动通道真实查询
             get_sim_info,
@@ -121,6 +123,11 @@ pub fn run() {
             // M2 新增：设置存取
             settings::get_setting,
             settings::set_setting,
+            // M5: 群发 + 通知
+            broadcast::start_broadcast,
+            broadcast::cancel_broadcast,
+            broadcast::list_broadcast_tasks,
+            broadcast::get_broadcast_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

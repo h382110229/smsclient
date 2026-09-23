@@ -8,10 +8,13 @@
 
 use std::sync::{Mutex, OnceLock};
 
+use tauri::Manager;
+use tauri_plugin_notification::NotificationExt;
 use windows::core::Interface;
 use windows::Devices::Sms::{
     ISmsMessageBase, SmsDevice, SmsDevice2, SmsDeviceStatus, SmsMessageFilter,
-    SmsMessageReceivedEventArgs, SmsMessageReceivedEventHandler, SmsTextMessage, SmsTextMessage2,
+    SmsMessageReceivedEventArgs, SmsMessageReceivedEventHandler, SmsStatusMessage, SmsTextMessage,
+    SmsTextMessage2,
 };
 use windows::Networking::Connectivity::{ConnectionProfile, NetworkInformation};
 
@@ -20,6 +23,17 @@ use crate::models::{ChannelStatus, NewMessage, SimInfo};
 
 /// 事件驱动收到的短信缓冲区（subscribe_inbox_events 注入，get_inbox drain 消费）
 static PENDING_SMS: OnceLock<Mutex<Vec<NewMessage>>> = OnceLock::new();
+/// 送达回执缓冲区（get_inbox drain 消费，(phone, status) 对）
+static PENDING_DELIVERY: OnceLock<Mutex<Vec<(String, String)>>> = OnceLock::new();
+
+/// 取出并清空待处理的送达回执 (phone, new_status)。
+pub fn drain_delivery_reports() -> Vec<(String, String)> {
+    let cell = PENDING_DELIVERY.get_or_init(|| Mutex::new(Vec::new()));
+    match cell.lock() {
+        Ok(mut buf) => buf.drain(..).collect(),
+        Err(_) => Vec::new(),
+    }
+}
 
 fn win_err(e: windows::core::Error) -> String {
     format!("WinRT 错误: {} (0x{:08X})", e.message(), e.code().0)
@@ -95,6 +109,21 @@ impl SmsChannel for WinRtChannel {
         let size = messages.Size().map_err(win_err)?;
         for i in 0..size {
             let item = messages.GetAt(i).map_err(win_err)?;
+            // M5: 送达回执检测 — SmsStatusMessage (TP-SRI) → 推送到 PENDING_DELIVERY
+            if let Ok(status_msg) = item.cast::<SmsStatusMessage>() {
+                if let Ok(to) = status_msg.To() {
+                    let to_str = to.to_string();
+                    if let Ok(st) = status_msg.Status() {
+                        // TP-ST: 0x00 = 送达成功，其余为失败
+                        let s = if st == 0 { "delivered".into() } else { "failed".into() };
+                        let cell = PENDING_DELIVERY.get_or_init(|| Mutex::new(Vec::new()));
+                        if let Ok(mut buf) = cell.lock() {
+                            buf.push((to_str, s));
+                        }
+                    }
+                }
+                continue;
+            }
             if let Ok(text_msg) = item.cast::<SmsTextMessage>() {
                 let from = text_msg.From().map(|s| s.to_string()).unwrap_or_default();
                 let body = text_msg.Body().map(|s| s.to_string()).unwrap_or_default();
@@ -236,6 +265,23 @@ pub fn subscribe_inbox_events(app_handle: tauri::AppHandle) -> Result<(), String
                     "phone": phone,
                     "content": content,
                 }));
+                // M5: 桌面通知（settings notify_enabled 控制，默认开启）
+                let notify_enabled = {
+                    let db = app_for_event.state::<crate::db::DbState>();
+                    db.with(|c| crate::settings::get(c, "notify_enabled"))
+                        .ok()
+                        .flatten()
+                        .map(|s| s != "false")
+                        .unwrap_or(true)
+                };
+                if notify_enabled {
+                    let _ = app_for_event
+                        .notification()
+                        .builder()
+                        .title(format!("新短信 {phone}"))
+                        .body(&content)
+                        .show();
+                }
             }
             Ok(())
         },

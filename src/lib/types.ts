@@ -108,7 +108,36 @@ export interface ChannelStatus {
 }
 
 // ============================================================
-// 应用级配置（M5 接入 settings 表）
+// 群发任务 (PRD §5.1 broadcast_tasks 表)
+// ============================================================
+
+/** 群发任务 */
+export interface BroadcastTask {
+  /** INTEGER PRIMARY KEY AUTOINCREMENT */
+  id: number;
+  /** 短信内容 */
+  content: string;
+  /** 总收件人数 */
+  total: number;
+  /** 已发送数 */
+  sent: number;
+  /** 失败数 */
+  failed: number;
+  /**
+   * 任务状态
+   * - pending: 待执行
+   * - running: 执行中
+   * - completed: 已完成
+   * - cancelled: 已取消
+   * - failed: 失败
+   */
+  status: "pending" | "running" | "completed" | "cancelled" | "failed";
+  /** 创建时间 (ISO-8601，可选) */
+  createdAt: string | null;
+}
+
+// ============================================================
+// 主题模式 / 应用全局设置（M5 接入 settings 表）
 // ============================================================
 
 /** 主题模式 */

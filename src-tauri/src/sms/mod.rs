@@ -245,6 +245,17 @@ pub fn sync_inbox_with(conn: &Connection, ch: &Channel) -> Result<Vec<SmsMessage
             let _ = crate::messages::insert(conn, &nm).map_err(db_err)?;
         }
     }
+    // M5: 消费送达回执，匹配最近一条已发送消息并更新状态
+    for (phone, status) in crate::sms::winrt::drain_delivery_reports() {
+        if let Ok(id) = conn.query_row(
+            "SELECT id FROM messages WHERE direction='out' AND phone=?1 AND status='sent' \
+             ORDER BY id DESC LIMIT 1",
+            rusqlite::params![phone],
+            |row| row.get::<_, i64>(0),
+        ) {
+            let _ = crate::messages::set_status(conn, id, &status, None);
+        }
+    }
     crate::messages::list(conn, Some("in"), 200).map_err(db_err)
 }
 

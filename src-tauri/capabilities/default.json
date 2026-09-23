@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for SMSClient",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "notification:default"
+  ]
+}
