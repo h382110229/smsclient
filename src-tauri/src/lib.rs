@@ -82,6 +82,19 @@ fn sync_device_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> 
 // ============================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+
+/// 获取收件箱（自动同步设备短信到 DB + 读取）
+#[tauri::command]
+fn get_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> {
+    // 先从设备同步到 DB
+    if let Ok(guard) = db.0.lock() {
+        if let Err(e) = sms::sync_inbox(&guard) {
+            eprintln!("[smsclient] 设备短信同步失败（非致命）: {e}");
+        }
+    }
+    // 再从 DB 读取
+    messages::get_inbox(db)
+}
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -103,7 +116,7 @@ pub fn run() {
             get_channel_status,
             sync_device_inbox,
             // M1+M2: 收件箱（启动时已同步设备短信）
-            messages::get_inbox,
+            get_inbox,
             // M2 新增：联系人 CRUD
             contacts::list_contacts,
             contacts::add_contact,
