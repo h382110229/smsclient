@@ -5,7 +5,16 @@
  * M2 联系人 CRUD + 消息查询 + 设置存取的类型安全封装。
  */
 import { invoke } from "@tauri-apps/api/core";
-import type { Contact, SimInfo, SmsMessage } from "./types";
+import type { ChannelStatus, Contact, SimInfo, SmsMessage } from "./types";
+
+// ============================================================
+// 通道状态 (M3)
+// ============================================================
+
+/** 获取通道状态（WinRT / Mock） */
+export async function getChannelStatus(): Promise<ChannelStatus> {
+  return invoke<ChannelStatus>("get_channel_status");
+}
 
 // ============================================================
 // SIM / 信号 (M1 保留)

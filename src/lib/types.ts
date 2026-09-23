@@ -97,8 +97,8 @@ export interface SimInfo {
 
 /** 通道状态 */
 export interface ChannelStatus {
-  /** 通道类型: 'winrt' | 'at' */
-  type: "winrt" | "at";
+  /** 通道类型: 'winrt' | 'mock' */
+  type: "winrt" | "mock";
   /** 是否就绪 */
   available: boolean;
   /** COM 端口（AT 通道使用，null = 不适用） */

@@ -19,11 +19,14 @@ import {
   MessageCircle,
   AlertCircle,
   Play,
+  Radio,
 } from "lucide-react";
-import type { SimInfo, SmsMessage } from "@/lib/types";
+import type { ChannelStatus, SimInfo, SmsMessage } from "@/lib/types";
+import { getChannelStatus } from "@/lib/tauri-bridge";
 import { formatTimestamp, signalToPercent } from "@/lib/utils";
 
 export function Dashboard() {
+  const [channelStatus, setChannelStatus] = useState<ChannelStatus | null>(null);
   const [simInfo, setSimInfo] = useState<SimInfo | null>(null);
   const [signal, setSignal] = useState<number | null>(null);
   const [inbox, setInbox] = useState<SmsMessage[]>([]);
@@ -39,12 +42,14 @@ export function Dashboard() {
     let cancelled = false;
     async function fetchData() {
       try {
-        const [sim, sig, msgs] = await Promise.all([
+        const [ch, sim, sig, msgs] = await Promise.all([
+          getChannelStatus(),
           invoke<SimInfo>("get_sim_info"),
           invoke<number>("get_signal_strength"),
           invoke<SmsMessage[]>("get_inbox"),
         ]);
         if (cancelled) return;
+        setChannelStatus(ch);
         setSimInfo(sim);
         setSignal(sig);
         setInbox(msgs);
@@ -106,7 +111,42 @@ export function Dashboard() {
 
       {/* Command Results Grid */}
       {!loading && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          {/* Channel Status Card */}
+          <Card
+            icon={<Radio size={20} />}
+            iconColor={
+              channelStatus?.available ? "text-success" : "text-destructive"
+            }
+            title="通道状态"
+            subtitle='invoke("get_channel_status")'
+          >
+            {channelStatus ? (
+              <div className="space-y-1 text-sm">
+                <Row
+                  label="通道类型"
+                  value={channelStatus.type === "winrt" ? "WinRT SMS" : "Mock 通道"}
+                />
+                <Row
+                  label="状态"
+                  value={channelStatus.available ? "就绪" : "不可用"}
+                />
+                {channelStatus.comPort && (
+                  <Row label="COM 端口" value={channelStatus.comPort} mono />
+                )}
+                {!channelStatus.available && channelStatus.error && (
+                  <div className="mt-2 p-2 rounded bg-destructive/10 border border-destructive/20">
+                    <p className="text-xs text-destructive font-medium">
+                      ⚠ {channelStatus.error}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <EmptyText />
+            )}
+          </Card>
+
           {/* SIM Info Card */}
           <Card
             icon={<Smartphone size={20} />}
@@ -265,7 +305,8 @@ export function Dashboard() {
         </span>
         <span className="text-xs text-muted-foreground">·</span>
         <span className="text-xs text-muted-foreground">
-          通道: WinRT SMS API (AT 通道预留)
+          通道: {channelStatus ? (channelStatus.type === "winrt" ? "WinRT SMS API" : "Mock 通道") : "加载中..."}
+          {channelStatus?.comPort ? ` (${channelStatus.comPort})` : ""}
         </span>
       </div>
     </div>
