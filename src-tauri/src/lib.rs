@@ -17,7 +17,7 @@ pub mod models;
 pub mod settings;
 pub mod sms;
 
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::db::DbState;
 use crate::models::{ChannelStatus, SimInfo, SmsMessage};
