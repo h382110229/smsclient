@@ -181,10 +181,13 @@ impl SmsChannel for WinRtChannel {
 
 /// 订阅 SmsDevice 的 SmsMessageReceived 事件，收到的短信 push 到 PENDING_SMS。
 /// 只需在启动时调用一次；设备获取失败时跳过（返回 Err）。
-pub fn subscribe_inbox_events() -> Result<(), String> {
+/// M4: 通过 app_handle emit "sms-received" 事件推送到前端。
+pub fn subscribe_inbox_events(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Emitter;
     // SmsMessageReceived 事件仅存在于 SmsDevice (v1)
     let op = SmsDevice::GetDefaultAsync().map_err(win_err)?;
     let dev = op.get().map_err(win_err)?;
+    let app_for_event = app_handle.clone();
     let handler = SmsMessageReceivedEventHandler::new(
         move |_sender: windows::core::Ref<'_, SmsDevice>,
               args: windows::core::Ref<'_, SmsMessageReceivedEventArgs>| {
@@ -222,10 +225,17 @@ pub fn subscribe_inbox_events() -> Result<(), String> {
                 };
                 eprintln!("[smsclient] 收到短信 from={} body={}", msg.phone, msg.content);
                 let _ = timestamp; // timestamp 由 DB DEFAULT 生成，此处仅调试用
+                let phone = msg.phone.clone();
+                let content = msg.content.clone();
                 let cell = PENDING_SMS.get_or_init(|| Mutex::new(Vec::new()));
                 if let Ok(mut buf) = cell.lock() {
                     buf.push(msg);
                 }
+                // M4: emit sms-received 事件到前端，通知收件箱刷新
+                let _ = app_for_event.emit("sms-received", serde_json::json!({
+                    "phone": phone,
+                    "content": content,
+                }));
             }
             Ok(())
         },

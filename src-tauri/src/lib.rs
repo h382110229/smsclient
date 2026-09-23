@@ -94,8 +94,9 @@ pub fn run() {
                     eprintln!("[smsclient] 启动时设备短信同步失败: {e}");
                 }
             }
-            // M3: 订阅 SmsDevice2 SmsMessageReceived 事件（失败仅打日志，不阻断启动）
-            if let Err(e) = sms::winrt::subscribe_inbox_events() {
+            // M4: 订阅 SmsDevice2 SmsMessageReceived 事件（推送到前端，失败仅打日志）
+            let handle = app.handle().clone();
+            if let Err(e) = sms::winrt::subscribe_inbox_events(handle) {
                 eprintln!("[smsclient] 短信事件订阅失败: {e}");
             }
             Ok(())
