@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use windows::core::Interface;
 use windows::Devices::Sms::{
-    ISmsMessageBase, SmsDevice2, SmsDeviceStatus, SmsTextMessage2,
+    ISmsMessageBase, SmsDevice, SmsDevice2, SmsDeviceStatus, SmsMessageFilter, SmsTextMessage, SmsTextMessage2,
 };
 use windows::Networking::Connectivity::{ConnectionProfile, NetworkInformation};
 
@@ -80,11 +80,43 @@ impl SmsChannel for WinRtChannel {
     }
 
     async fn get_inbox(&self) -> Result<Vec<ReceivedSms>, String> {
-        // WinRT SmsDevice::GetDefaultAsync().get() 需要 Windows 消息泵，
-        // 在 Tauri 后台线程中会死锁导致 UI 卡死。
-        // Phase 2: 用 COM STA 线程 + 消息泵 实现实时收信。
-        // 目前：返回空，收件箱数据来自 DB。
-        Ok(vec![])
+        let _ = self.device()?;
+        let op = SmsDevice::GetDefaultAsync().map_err(win_err)?;
+        let dev1 = op.get().map_err(win_err)?;
+        let store = dev1.MessageStore().map_err(win_err)?;
+        let messages = store.GetMessagesAsync(SmsMessageFilter::All)
+            .map_err(win_err)?.get().map_err(win_err)?;
+
+        let mut result = Vec::new();
+        let size = messages.Size().map_err(win_err)?;
+        for i in 0..size {
+            let item = messages.GetAt(i).map_err(win_err)?;
+            if let Ok(text_msg) = item.cast::<SmsTextMessage>() {
+                let from = text_msg.From().map(|s| s.to_string()).unwrap_or_default();
+                let body = text_msg.Body().map(|s| s.to_string()).unwrap_or_default();
+                let device_id = text_msg.Id().unwrap_or(0);
+                let timestamp = text_msg.Timestamp().map(|dt| {
+                    let ft = dt.UniversalTime as i64;
+                    let unix = (ft - 116_444_736_000_000_000) / 10_000_000;
+                    let (h, m, sec) = (unix % 86400 / 3600, unix % 3600 / 60, unix % 60);
+                    let days = unix / 86400 + 719468;
+                    let era = days / 146097;
+                    let doe = (days - era * 146097) as u64;
+                    let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+                    let y = yoe as i64 + era * 400;
+                    let doy = doe - (365*yoe + yoe/4 - yoe/100);
+                    let mp = (5*doy + 2) / 153;
+                    let d = doy - (153*mp + 2)/5 + 1;
+                    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+                    let yr = if mo <= 2 { y + 1 } else { y };
+                    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", yr, mo, d, h, m, sec)
+                }).unwrap_or_default();
+                if !from.is_empty() && !body.is_empty() {
+                    result.push(ReceivedSms { from, body, timestamp, device_id });
+                }
+            }
+        }
+        Ok(result)
     }
 
     async fn delete_message(&self, _id: MessageId) -> Result<(), String> { Ok(()) }
@@ -147,4 +179,5 @@ mod tests {
         let ch = WinRtChannel::new();
         let _ = ch.device();
     }
-}
+
+

@@ -147,7 +147,7 @@ pub fn channel_or_fallback(preferred: &str) -> Channel {
         Ok(ch) => {
             if matches!(ch, Channel::Winrt(_)) {
                 // WinRT 通道：探测设备是否可用
-                let st = tauri::async_runtime::block_on(ch.status());
+                let st = block_on(ch.status());
                 if st.available {
                     ch
                 } else {
@@ -194,7 +194,7 @@ pub fn merge_sim_info(mut info: SimInfo) -> SimInfo {
 /// 获取 SIM 信息：WinRT 真实查询 → merge ICCID/IMSI → 失败回退 mock。
 pub fn fetch_sim_info(conn: &Connection) -> SimInfo {
     let ch = active_channel(conn);
-    match tauri::async_runtime::block_on(ch.get_sim_info()) {
+    match block_on(ch.get_sim_info()) {
         Ok(info) => merge_sim_info(info),
         Err(_) => fallback_sim_info(),
     }
@@ -203,13 +203,13 @@ pub fn fetch_sim_info(conn: &Connection) -> SimInfo {
 /// 获取信号强度：WinRT 真实 dBm → 失败回退 -91。
 pub fn fetch_signal(conn: &Connection) -> i32 {
     let ch = active_channel(conn);
-    tauri::async_runtime::block_on(ch.get_signal_strength()).unwrap_or(-91)
+    block_on(ch.get_signal_strength()).unwrap_or(-91)
 }
 
 /// 发送短信：WinRT 发送 → DB 入库(status='sent') → 返回 rowid。
 pub fn send(conn: &Connection, phone: &str, content: &str) -> Result<i64, String> {
     let ch = active_channel(conn);
-    tauri::async_runtime::block_on(ch.send_sms(phone, content))?;
+    block_on(ch.send_sms(phone, content))?;
     let mut msg = crate::models::NewMessage::outgoing(phone.to_string(), content.to_string());
     msg.status = "sent".to_string();
     crate::messages::insert(conn, &msg).map_err(db_err)
@@ -233,7 +233,7 @@ pub fn sync_inbox(conn: &Connection) -> Result<Vec<SmsMessage>, String> {
 
 /// 使用指定通道同步收件箱（测试可用）。
 pub fn sync_inbox_with(conn: &Connection, ch: &Channel) -> Result<Vec<SmsMessage>, String> {
-    let received = tauri::async_runtime::block_on(ch.get_inbox())?;
+    let received = block_on(ch.get_inbox())?;
     for r in received {
         let phone = crate::contacts::normalize_phone(&r.from);
         if phone.is_empty() || r.body.trim().is_empty() {
@@ -253,7 +253,7 @@ pub fn channel_status(conn: &Connection) -> ChannelStatus {
     let preferred = preferred_channel(conn);
     match resolve_channel(&preferred) {
         Ok(Channel::Winrt(w)) => {
-            let st = tauri::async_runtime::block_on(w.status());
+            let st = block_on(w.status());
             if st.available {
                 st
             } else {
@@ -265,7 +265,7 @@ pub fn channel_status(conn: &Connection) -> ChannelStatus {
                 }
             }
         }
-        Ok(other) => tauri::async_runtime::block_on(other.status()),
+        Ok(other) => block_on(other.status()),
         Err(e) => ChannelStatus {
             channel_type: preferred,
             available: false,

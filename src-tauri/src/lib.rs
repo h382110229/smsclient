@@ -86,8 +86,13 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             db::init(app).map_err(|e| format!("SQLite 初始化失败: {e}"))?;
-            // M3: 启动时不做设备同步（WinRT SmsDevice::GetDefaultAsync 需要消息泵，会阻塞启动）
-            // 收件箱数据来自 DB，WinRT 实时收信留 Phase 2
+            // M3: 启动时同步设备短信到 DB（block_on 不会死锁，探测已验证）
+            let db = app.state::<DbState>();
+            if let Ok(guard) = db.0.lock() {
+                if let Err(e) = sms::sync_inbox(&guard) {
+                    eprintln!("[smsclient] 启动时设备短信同步失败: {e}");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
