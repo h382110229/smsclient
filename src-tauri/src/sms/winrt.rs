@@ -179,5 +179,4 @@ mod tests {
         let ch = WinRtChannel::new();
         let _ = ch.device();
     }
-
-
+}
