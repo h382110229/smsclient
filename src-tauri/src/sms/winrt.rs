@@ -6,16 +6,20 @@
 //! - 手机号: SmsDevice2::AccountPhoneNumber（从 SIM/运营商读取）
 //! - SIM/信号: 取 WWAN 蜂窝 profile，不再取 internet profile（WiFi）
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use windows::core::Interface;
 use windows::Devices::Sms::{
-    ISmsMessageBase, SmsDevice, SmsDevice2, SmsDeviceStatus, SmsMessageFilter, SmsTextMessage, SmsTextMessage2,
+    ISmsMessageBase, SmsDevice, SmsDevice2, SmsDeviceStatus, SmsMessageFilter,
+    SmsMessageReceivedEventArgs, SmsMessageReceivedEventHandler, SmsTextMessage, SmsTextMessage2,
 };
 use windows::Networking::Connectivity::{ConnectionProfile, NetworkInformation};
 
 use super::channel::{MessageId, ReceivedSms, SmsChannel};
-use crate::models::{ChannelStatus, SimInfo};
+use crate::models::{ChannelStatus, NewMessage, SimInfo};
+
+/// 事件驱动收到的短信缓冲区（subscribe_inbox_events 注入，get_inbox drain 消费）
+static PENDING_SMS: OnceLock<Mutex<Vec<NewMessage>>> = OnceLock::new();
 
 fn win_err(e: windows::core::Error) -> String {
     format!("WinRT 错误: {} (0x{:08X})", e.message(), e.code().0)
@@ -168,6 +172,74 @@ impl SmsChannel for WinRtChannel {
             }
             Err(e) => ChannelStatus { channel_type: "winrt".into(), available: false, com_port: None, error: Some(e) },
         }
+    }
+}
+
+// ============================================================
+// M3: WinRT SmsDevice2 事件驱动收信
+// ============================================================
+
+/// 订阅 SmsDevice 的 SmsMessageReceived 事件，收到的短信 push 到 PENDING_SMS。
+/// 只需在启动时调用一次；设备获取失败时跳过（返回 Err）。
+pub fn subscribe_inbox_events() -> Result<(), String> {
+    // SmsMessageReceived 事件仅存在于 SmsDevice (v1)
+    let op = SmsDevice::GetDefaultAsync().map_err(win_err)?;
+    let dev = op.get().map_err(win_err)?;
+    let handler = SmsMessageReceivedEventHandler::new(
+        move |_sender: windows::core::Ref<'_, SmsDevice>,
+              args: windows::core::Ref<'_, SmsMessageReceivedEventArgs>| {
+            let Some(args_ref) = args.as_ref() else { return Ok(()) };
+            if let Ok(text_msg) = args_ref.TextMessage() {
+                let from = text_msg.From().map(|s| s.to_string()).unwrap_or_default();
+                let body = text_msg.Body().map(|s| s.to_string()).unwrap_or_default();
+                let timestamp = text_msg.Timestamp().map(|dt| {
+                    let ft = dt.UniversalTime as i64;
+                    let unix = (ft - 116_444_736_000_000_000) / 10_000_000;
+                    let (h, m, sec) = (unix % 86400 / 3600, unix % 3600 / 60, unix % 60);
+                    let days = unix / 86400 + 719468;
+                    let era = days / 146097;
+                    let doe = (days - era * 146097) as u64;
+                    let yoe = (doe - doe/1460 + doe/36524 - doe/146096) / 365;
+                    let y = yoe as i64 + era * 400;
+                    let doy = doe - (365*yoe + yoe/4 - yoe/100);
+                    let mp = (5*doy + 2) / 153;
+                    let d = doy - (153*mp + 2)/5 + 1;
+                    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+                    let yr = if mo <= 2 { y + 1 } else { y };
+                    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", yr, mo, d, h, m, sec)
+                }).unwrap_or_default();
+
+                let msg = NewMessage {
+                    direction: "in".to_string(),
+                    phone: from,
+                    content: body,
+                    encoding: "UCS2".to_string(),
+                    is_long: false,
+                    part_index: 1,
+                    part_total: 1,
+                    group_id: None,
+                    status: "unread".to_string(),
+                };
+                eprintln!("[smsclient] 收到短信 from={} body={}", msg.phone, msg.content);
+                let _ = timestamp; // timestamp 由 DB DEFAULT 生成，此处仅调试用
+                let cell = PENDING_SMS.get_or_init(|| Mutex::new(Vec::new()));
+                if let Ok(mut buf) = cell.lock() {
+                    buf.push(msg);
+                }
+            }
+            Ok(())
+        },
+    );
+    dev.SmsMessageReceived(&handler).map_err(win_err)?;
+    Ok(())
+}
+
+/// 取出并清空 PENDING_SMS 中的待处理短信。
+pub fn drain_pending_sms() -> Vec<NewMessage> {
+    let cell = PENDING_SMS.get_or_init(|| Mutex::new(Vec::new()));
+    match cell.lock() {
+        Ok(mut buf) => buf.drain(..).collect(),
+        Err(_) => Vec::new(),
     }
 }
 

@@ -137,6 +137,10 @@ fn map_err(e: rusqlite::Error) -> String {
 #[tauri::command]
 pub fn get_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> {
     db.with(|c| {
+        // 先消费事件驱动缓冲区（SmsDevice2 SmsMessageReceived 推入，非致命，忽略重复）
+        for msg in crate::sms::winrt::drain_pending_sms() {
+            let _ = insert(c, &msg);
+        }
         // 先从 WinRT 设备同步短信到 DB（非致命，失败仅 eprintln）
         if let Err(e) = crate::sms::sync_inbox(c) {
             eprintln!("[smsclient] 设备短信同步失败（非致命）: {e}");
