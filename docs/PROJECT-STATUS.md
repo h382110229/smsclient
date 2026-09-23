@@ -68,14 +68,14 @@
 
 | commit | 说明 |
 |--------|------|
-| f319d69 | [m5] 群发+送达回执+桌面通知 |
-| 2570a2d | [m4] 收件箱/写短信/已发送 页面联调 |
-| 0bf657e | [m3] subscribe_inbox_events 编译修复 |
-| c096fbc | [m3] get_inbox 自动同步设备短信 |
-| 8898b76 | [m3] WinRT 真实通道集成 |
-| a342cda | [m3] SmsChannel trait 抽象 |
-| 0adc6f7 | [m2] SQLite 数据层 |
-| f7583c6 | [m1] 初始脚手架 |
+| 877e5d3 | [m5] 群发+送达回执+桌面通知 |
+| a976d68 | [m4] 收件箱/写短信/已发送 页面联调 |
+| 8f32586 | [m3] subscribe_inbox_events 编译修复 |
+| 996c588 | [m3] get_inbox 自动同步设备短信 |
+| a9a424e | [m3] WinRT 真实通道集成 |
+| e57f22c | [m3] SmsChannel trait 抽象 |
+| fc74f11 | [m2] SQLite 数据层 |
+| 44ea9d4 | [m1] 初始脚手架 |
 
 ## 7. v2.0 展望（PRD §1.3 排除项）
 
