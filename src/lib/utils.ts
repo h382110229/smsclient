@@ -14,13 +14,31 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * 格式化时间戳为本地可读字符串。
- * 支持两种输入：
- * - ISO-8601 字符串 'YYYY-MM-DD HH:MM:SS'（PRD §5 SQLite DATETIME）
+ * 格式化时间戳为本地可读字符串（正确处理时区，解决 8 小时偏差）。
+ * 支持输入：
+ * - ISO-8601 UTC 字符串 'YYYY-MM-DDTHH:MM:SSZ'
+ * - SQLite 默认 UTC 字符串 'YYYY-MM-DD HH:MM:SS'
  * - Unix 秒数（兼容旧数据）
  */
-export function formatTimestamp(ts: string | number): string {
-  const date = typeof ts === "number" ? new Date(ts * 1000) : new Date(ts.replace(" ", "T"));
+export function formatTimestamp(ts: string | number | null | undefined): string {
+  if (!ts) return "";
+  let date: Date;
+  if (typeof ts === "number") {
+    date = new Date(ts * 1000);
+  } else {
+    let str = ts.trim();
+    if (!str.includes("T")) {
+      str = str.replace(" ", "T");
+    }
+    // 若无时区后缀，补充 'Z' 确保 JS 视作 UTC 并准确转换为本地系统时区
+    if (!str.endsWith("Z") && !/[+-]\d{2}(:\d{2})?$/.test(str)) {
+      str += "Z";
+    }
+    date = new Date(str);
+  }
+  if (isNaN(date.getTime())) {
+    return String(ts);
+  }
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
     month: "2-digit",

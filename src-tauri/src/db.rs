@@ -107,13 +107,25 @@ impl DbState {
 }
 
 /// 应用启动时调用：初始化数据目录、建库、托管状态。
+/// 支持绿色便携模式：若 exe 所在目录存在 data/ 文件夹，则优先使用本地数据库。
 pub fn init(app: &mut tauri::App) -> Result<()> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| rusqlite::Error::InvalidParameterName(format!("app_data_dir: {e}")))?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| rusqlite::Error::InvalidParameterName(format!("create_dir_all: {e}")))?;
+    let portable_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("data")))
+        .filter(|d| d.exists() && d.is_dir());
+
+    let dir = if let Some(p) = portable_dir {
+        p
+    } else {
+        let app_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("app_data_dir: {e}")))?;
+        std::fs::create_dir_all(&app_dir)
+            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("create_dir_all: {e}")))?;
+        app_dir
+    };
+
     let path = dir.join("smsclient.db");
     let conn = open(&path)?;
     app.manage(DbState(Mutex::new(conn)));

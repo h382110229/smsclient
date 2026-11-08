@@ -95,11 +95,28 @@ pub fn run() {
                     eprintln!("[smsclient] 启动时设备短信同步失败: {e}");
                 }
             }
-            // M4: 订阅 SmsDevice2 SmsMessageReceived 事件（推送到前端，失败仅打日志）
+            // M4: 订阅 SmsDevice SmsMessageReceived 事件
             let handle = app.handle().clone();
             if let Err(e) = sms::winrt::subscribe_inbox_events(handle) {
                 eprintln!("[smsclient] 短信事件订阅失败: {e}");
             }
+            // 启动后台心跳同步兜底（每 15 秒同步一次），防止休眠唤醒或 WinRT 事件漏发导致断收
+            let bg_app = app.handle().clone();
+            std::thread::spawn(move || {
+                use tauri::Emitter;
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(15));
+                    let db = bg_app.state::<DbState>();
+                    let _ = db.with(|conn| {
+                        if let Ok(msgs) = sms::sync_inbox(conn) {
+                            if msgs.iter().any(|m| m.status != "read") {
+                                let _ = bg_app.emit("sms-received", ());
+                            }
+                        }
+                        Ok(())
+                    });
+                }
+            });
             Ok(())
         })
         .plugin(tauri_plugin_notification::init())

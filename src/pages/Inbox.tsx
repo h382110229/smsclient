@@ -30,6 +30,15 @@ interface Conversation {
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
+function parseMsgTime(ts: string): number {
+  if (!ts) return 0;
+  let str = ts.trim();
+  if (!str.includes("T")) str = str.replace(" ", "T");
+  if (!str.endsWith("Z") && !/[+-]\d{2}(:\d{2})?$/.test(str)) str += "Z";
+  const t = new Date(str).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
 function buildConversations(messages: SmsMessage[]): Conversation[] {
   const map = new Map<string, SmsMessage[]>();
 
@@ -45,12 +54,13 @@ function buildConversations(messages: SmsMessage[]): Conversation[] {
   const conversations: Conversation[] = [];
 
   for (const [phone, msgs] of map) {
-    // Sort by timestamp ASC so last element is newest
-    msgs.sort(
-      (a, b) =>
-        new Date(a.timestamp.replace(" ", "T")).getTime() -
-        new Date(b.timestamp.replace(" ", "T")).getTime(),
-    );
+    // 严格按时间升序 -> 长短信序号 partIndex 升序 -> id 升序，确保长短信按正确语序拼接展示
+    msgs.sort((a, b) => {
+      const diff = parseMsgTime(a.timestamp) - parseMsgTime(b.timestamp);
+      if (diff !== 0) return diff;
+      if (a.partIndex !== b.partIndex) return a.partIndex - b.partIndex;
+      return a.id - b.id;
+    });
     const lastMessage = msgs[msgs.length - 1];
     const unreadCount = msgs.filter(
       (m) => m.direction === "in" && m.status !== "read",
@@ -61,9 +71,7 @@ function buildConversations(messages: SmsMessage[]): Conversation[] {
 
   // Sort conversations newest-first
   conversations.sort(
-    (a, b) =>
-      new Date(b.lastMessage.timestamp.replace(" ", "T")).getTime() -
-      new Date(a.lastMessage.timestamp.replace(" ", "T")).getTime(),
+    (a, b) => parseMsgTime(b.lastMessage.timestamp) - parseMsgTime(a.lastMessage.timestamp),
   );
 
   return conversations;
@@ -88,15 +96,15 @@ export function Inbox() {
 
   /* ---------- data fetching ---------- */
 
-  const fetchInbox = useCallback(async () => {
-    setLoading(true);
+  const fetchInbox = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const msgs = await invoke<SmsMessage[]>("get_inbox");
       setMessages(msgs);
     } catch (e) {
       console.error("Failed to fetch inbox:", e);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -104,15 +112,21 @@ export function Inbox() {
     fetchInbox();
   }, [fetchInbox]);
 
-  /* ---------- real-time listener ---------- */
+  /* ---------- real-time listener & heartbeat fallback ---------- */
 
   useEffect(() => {
     const unlisten = listen("sms-received", () => {
-      fetchInbox();
+      fetchInbox(true);
     });
+
+    // 增加心跳定时器兜底（每 8 秒静默同步一次），防止 WinRT 事件丢包导致断收
+    const interval = setInterval(() => {
+      fetchInbox(true);
+    }, 8000);
 
     return () => {
       unlisten.then((fn) => fn());
+      clearInterval(interval);
     };
   }, [fetchInbox]);
 
@@ -202,7 +216,7 @@ export function Inbox() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <h2 className="text-lg font-bold text-foreground">收件箱</h2>
           <button
-            onClick={fetchInbox}
+            onClick={() => fetchInbox(false)}
             disabled={loading}
             className="flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium border border-border bg-card text-foreground hover:bg-accent/10 transition-colors"
             title="刷新"

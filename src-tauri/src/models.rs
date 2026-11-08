@@ -58,7 +58,7 @@ pub struct SmsMessage {
     pub timestamp: String,
 }
 
-/// 插入新消息的参数（不含 id / timestamp，由数据库自动生成）
+/// 插入新消息的参数（不含 id，timestamp 可选，未提供时由数据库自动生成）
 #[derive(Debug, Clone)]
 pub struct NewMessage {
     pub direction: String,
@@ -70,6 +70,7 @@ pub struct NewMessage {
     pub part_total: i64,
     pub group_id: Option<String>,
     pub status: String,
+    pub timestamp: Option<String>,
 }
 
 impl NewMessage {
@@ -92,6 +93,7 @@ impl NewMessage {
             part_total,
             group_id: None,
             status: "pending".to_string(),
+            timestamp: None,
         }
     }
 
@@ -107,6 +109,31 @@ impl NewMessage {
             part_total: 1,
             group_id: None,
             status: "delivered".to_string(),
+            timestamp: None,
+        }
+    }
+
+    /// 构造一条收到的短信并附带实际接收时间戳
+    pub fn incoming_with_meta(
+        phone: String,
+        content: String,
+        timestamp: Option<String>,
+        is_long: bool,
+        part_index: i64,
+        part_total: i64,
+        group_id: Option<String>,
+    ) -> Self {
+        Self {
+            direction: "in".to_string(),
+            phone,
+            content,
+            encoding: "UCS2".to_string(),
+            is_long,
+            part_index,
+            part_total,
+            group_id,
+            status: "delivered".to_string(),
+            timestamp,
         }
     }
 }

@@ -13,7 +13,7 @@ use crate::models::{NewMessage, SmsMessage};
 // 核心存取（可单测）
 // ============================================================
 
-/// 插入一条消息（timestamp 由数据库 DEFAULT CURRENT_TIMESTAMP 生成，UTC）。
+/// 插入一条消息。若 msg.timestamp 存在则写入指定时间，否则由数据库生成 UTC 时间戳。
 /// 返回自增主键 id。
 pub fn insert(conn: &Connection, msg: &NewMessage) -> SqlResult<i64> {
     let phone = normalize_phone(&msg.phone);
@@ -27,22 +27,42 @@ pub fn insert(conn: &Connection, msg: &NewMessage) -> SqlResult<i64> {
             "短信内容不能为空".into(),
         ));
     }
-    conn.execute(
-        "INSERT INTO messages \
-         (direction, phone, content, encoding, is_long, part_index, part_total, group_id, status) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![
-            msg.direction,
-            phone,
-            msg.content,
-            msg.encoding,
-            msg.is_long,
-            msg.part_index,
-            msg.part_total,
-            msg.group_id,
-            msg.status,
-        ],
-    )?;
+    if let Some(ts) = &msg.timestamp {
+        conn.execute(
+            "INSERT INTO messages \
+             (direction, phone, content, encoding, is_long, part_index, part_total, group_id, status, timestamp) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                msg.direction,
+                phone,
+                msg.content,
+                msg.encoding,
+                msg.is_long,
+                msg.part_index,
+                msg.part_total,
+                msg.group_id,
+                msg.status,
+                ts,
+            ],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO messages \
+             (direction, phone, content, encoding, is_long, part_index, part_total, group_id, status, timestamp) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+            params![
+                msg.direction,
+                phone,
+                msg.content,
+                msg.encoding,
+                msg.is_long,
+                msg.part_index,
+                msg.part_total,
+                msg.group_id,
+                msg.status,
+            ],
+        )?;
+    }
     Ok(conn.last_insert_rowid())
 }
 

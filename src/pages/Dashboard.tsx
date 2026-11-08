@@ -87,7 +87,7 @@ export function Dashboard() {
       <div>
         <h2 className="text-2xl font-bold text-foreground">仪表盘</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          SMSClient M2 · SQLite 数据层 + 联系人 CRUD
+          SMSClient v0.2.0 · Windows 4G/LTE 短信桌面客户端
         </p>
       </div>
 

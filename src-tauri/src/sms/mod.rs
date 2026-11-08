@@ -225,7 +225,7 @@ pub fn inbox_exists(conn: &Connection, phone: &str, content: &str) -> rusqlite::
     Ok(n > 0)
 }
 
-/// 同步收件箱：设备收取 → 去重入库 → DB 读取。
+/// 同步收件箱：设备收取 → 去重入库 → 清理 SIM 卡缓存 → DB 读取。
 pub fn sync_inbox(conn: &Connection) -> Result<Vec<SmsMessage>, String> {
     let ch = active_channel(conn);
     sync_inbox_with(conn, &ch)
@@ -237,12 +237,31 @@ pub fn sync_inbox_with(conn: &Connection, ch: &Channel) -> Result<Vec<SmsMessage
     for r in received {
         let phone = crate::contacts::normalize_phone(&r.from);
         if phone.is_empty() || r.body.trim().is_empty() {
+            // 无效短信也从卡中清除，释放空间
+            if r.device_id > 0 {
+                let _ = block_on(ch.delete_message(r.device_id));
+            }
             continue;
         }
-        // 去重：同号码+同内容不重复入库
-        if !inbox_exists(conn, &phone, r.body.trim()).map_err(db_err)? {
-            let nm = crate::models::NewMessage::incoming(phone, r.body.trim().to_string());
+        // 去重：同号码+同内容在短时间窗口内不重复入库
+        let exists = inbox_exists(conn, &phone, r.body.trim()).map_err(db_err)?;
+        if !exists {
+            let nm = crate::models::NewMessage::incoming_with_meta(
+                phone,
+                r.body.trim().to_string(),
+                if r.timestamp.is_empty() { None } else { Some(r.timestamp.clone()) },
+                false,
+                1,
+                1,
+                None,
+            );
             let _ = crate::messages::insert(conn, &nm).map_err(db_err)?;
+        }
+        // 核心修复 (问题 4): 同步入库后，立即删除 SIM 卡/设备存储中的此条短信，杜绝卡容量满导致的断收！
+        if r.device_id > 0 {
+            if let Err(e) = block_on(ch.delete_message(r.device_id)) {
+                eprintln!("[smsclient] 清理 SIM 卡短信 (id={}) 提示: {e}", r.device_id);
+            }
         }
     }
     // M5: 消费送达回执，匹配最近一条已发送消息并更新状态
