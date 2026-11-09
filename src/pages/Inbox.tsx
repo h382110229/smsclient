@@ -87,6 +87,12 @@ export function Inbox() {
   const fetchInbox = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
+      if (!silent) {
+        // 用户主动点击“刷新”时，触发硬件卡槽主动拉取同步（带超时保护，避免仅读本地缓存）
+        await invoke("sync_device_inbox").catch((e) => {
+          console.warn("sync_device_inbox error (falling back to local db):", e);
+        });
+      }
       const msgs = await invoke<SmsMessage[]>("get_inbox");
       setMessages(msgs);
     } catch (e) {
