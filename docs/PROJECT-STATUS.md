@@ -1,8 +1,8 @@
-# SMSClient 项目复盘总结
+# SMSClient 项目复盘与演进总结
 
-> **日期**: 2026-09-24
-> **版本**: v0.1.0
-> **状态**: ✅ M0–M6 全部完成，实机验收通过
+> **最新版本**: v0.2.0  
+> **更新日期**: 2026-11-09  
+> **项目状态**: ✅ v0.2.0 迭代完成，实机与绿色便携环境全面验收通过
 
 ---
 
@@ -16,71 +16,68 @@
 | M3 | WinRT SMS 通道集成 | ✅ 09-23 | 收发短信 + SIM/信号 + 事件订阅 |
 | M4 | 收件箱/写短信/已发送 页面联调 | ✅ 09-23 | 会话聚合 + 搜索 + 实时监听 + 联系人选择器 + 发送确认 + 失败重发 |
 | M5 | 群发 + 送达回执 + 通知 | ✅ 09-23 | 群发队列(重试/限速/进度) + SmsStatusMessage 回执 + Win11 Toast |
-| M6 | 端到端验收 | ✅ 09-24 | 实机启动验证通过（用户确认可用） |
+| M6 | 端到端实机验收 (v0.1.0) | ✅ 09-24 | 实机启动验证通过 |
+| **v0.2.0** | **稳定化与便携化升级** | ✅ **11-09** | **修复独立绿色运行、时区偏移、长短信乱序、SIM 存储满卡死、硬件休眠容错** |
 
-## 2. 技术栈与架构
+---
 
-- **前端**: React 19 + Tailwind CSS 4 + lucide-react + react-router-dom 7
-- **后端**: Tauri 2 + rusqlite (bundled SQLite) + windows crate 0.61
-- **SMS 通道**: A) WinRT SmsDevice2（当前启用）；B) AT Serial（预留 trait 接口）
-- **通知**: tauri-plugin-notification 2.4.0 (Win11 Toast)
-- **交付**: 单文件 exe 4.2MB（远低于 PRD 30MB 上限），免安装
+## 2. v0.2.0 重点问题深度复盘与根因分析
 
-## 3. 验收结果 (M6)
+在 v0.1.0 实际使用一段时间后，用户反馈了 4 个主要体验痛点及 1 个硬件级偶发脱机问题：
 
-- ✅ exe 启动正常，SIM 状态 / 信号 / 通道状态正确显示
-- ✅ WinRT 通道就绪（恢复 LTE 适配器后），CMCC -83dBm / 48%
-- ✅ 4G 数据连接保持正常（ping 223.5.5.5 0% 丢包）
-- ✅ 收发短信、会话视图、群发、设置页面全部可用
+### 问题 1: 绿色免安装版发给其他人无法独立使用（localhost 拒绝连接）
+- **根因**: 原先直接使用 dev 开发模式产物或打包配置中未完全内嵌前端资源，导致运行时 WebView 尝试请求 `http://localhost:1420` 开发服务器。
+- **解决方案**:
+  1. 执行 `npm run build` 生成纯静态前端 dist 资产；
+  2. 使用 `npm run tauri build -- --no-bundle` 构建独立的单文件生产版 exe，将 HTML/JS/CSS 完整嵌入二进制中；
+  3. 打包发布专用的绿色便携压缩包 `release/SMSClient-v0.2.0-Windows-x64.zip`。
 
-## 4. 已知限制 / 后续改进
+### 问题 2: 短信时间戳不正确（时间偏差 8 小时）
+- **根因**: WinRT 原生 `message.Timestamp()` 返回基于 UTC 协调世界时的 Windows DateTime 刻度。后端之前未规范化时区标识，前端解析时当作本地时间，导致比北京时间（UTC+8）慢了 8 小时。
+- **解决方案**:
+  1. 后端统一将 UTC 时间刻度转换为带 `Z` 标识的 ISO-8601 字符串（如 `2026-11-09T03:45:10Z`）；
+  2. 前端工具函数 `formatMessageTime` 使用 `new Date(isoStr)` 自动适配宿主操作系统本地时区渲染。
 
-| 项 | 现状 | 建议 |
-|----|------|------|
-| ICCID/IMSI | WinRT 读取不到，显示 PRD 占位值 | AT 通道（PID_0312）时可读 |
-| 长短信 | 计数/预览已做，物理拆分由运营商处理 | v2.0 加 UDH 拼接控制 |
-| MSI 安装包 | WiX 下载超时未生成（exe 不受影响） | 网络畅通时 `tauri build` 重试 |
-| 数据位置 | SQLite 在 %APPDATA%\com.asteam.smsclient | v2.0 可加便携模式选项 |
-| 送达回执 | TP-ST=0 判定 delivered，匹配最近一条 sent | 加 MessageReferenceNumber 精确匹配 |
-| 通知点击跳转 | Toast 点击激活窗口（默认行为） | v2.0 用 onAction 跳转会话 |
+### 问题 3: 同一时间发出的长短信被截断成多条且顺序颠倒
+- **根因**: 运营商下发长短信（Concatenated SMS）时会按 67~70 字符拆分成若干物理分片下发，分片到达时间相同，原先按 `created_at DESC, id DESC` 排序导致同一批次内的分片展示顺序错乱。
+- **解决方案**:
+  1. 解析短信 PDU/分片序号，保证入库与查询时多条同批次短信按真实语序升序排列；
+  2. 前端展示层优化长文本段落连贯阅读。
 
-## 5. 复盘经验（技术教训）
+### 问题 4: 连续收了几条短信后，后续突然收不到短信（最严重问题）
+- **根因**: **SIM 卡物理硬件存储容量极小**（多数 SIM 卡仅能容纳 20~50 条短信）。当卡内短信满载后，运营商基站检测到终端存储溢出，会暂停向终端投递新短信；同时设备消息队列堵塞。
+- **解决方案**:
+  1. **入库即排空（Post-sync Delete）**：后台同步任务将短信持久化到本地 SQLite 数据库后，立即调用 WinRT API 从 SIM 卡中安全删除已处理的消息，永远保持 SIM 卡有充足的接收空间；
+  2. **事件常驻与心跳守护**：保留常驻内存引用，避免垃圾回收中断监听，并在后台启动 15 秒心跳静默同步兜底。
 
-### WinRT / windows crate
-1. `windows::core::Ref<'_, T>` 调方法报 "method not found"：Deref 目标是 `T::Default`，需 `args.as_ref()` 取 `Option<&T>` 再调用
-2. WinRT 事件 handler 传参报 `Param` trait 不满足：handler 要传 `&handler`（引用），不是所有权值
-3. `SmsStatusMessage` 是送达回执（TP-SRI），`Status()==0` 为送达成功，cast 失败才是普通文本短信
-4. 状态事件回调里不能嵌套 `tauri::async_runtime::block_on`（会死锁），推入全局缓冲 + 命令层消费是安全模式
+### 问题 5: 盒盖休眠/唤醒后 4G 网卡丢失（Code 45 CM_PROB_PHANTOM）
+- **现象**: 电脑睡眠唤醒后，客户端提示“未检测到 4G/LTE 蜂窝设备 (SmsDevice2)，WinRT 不可用，已回退 Mock 通道”。
+- **排查与根因**:
+  - 检查 `netsh mbn show interfaces` 发现 Windows 移动宽带接口数量为 0；
+  - 移远日志捕获到唤醒时 USB 端口 8 发生描述符异常（`USB\VID_0000&PID_0002`），导致 Windows xHCI USB 控制器将该内部 M.2 插槽置为脱机（Code 45）；
+  - 且 Windows 开启了快速启动（`HiberbootEnabled = 1`），普通关机无法真正复位硬件供电轨。
+- **解决方案**:
+  - 通过系统工具清理异常描述符；
+  - 进行真正的系统【重启】（Restart），促使 UEFI/BIOS 在 POST 阶段重新为 M.2 插槽供电并重枚举，网卡恢复正常。
 
-### Tauri 2
-5. Tauri 2 插件（notification 等）必须建 `capabilities/default.json` 声明权限（`core:default` + 插件权限），否则运行时静默失败
-6. 同步 command 内 `db.with(|conn| ...)` 闭包须返回 `rusqlite::Result`，纯值要包 `Ok(...)`
-7. 后台线程访问 SQLite：用 `db::open()` 独立连接 + WAL + busy_timeout，别共享 Mutex<Connection> 跨线程
+---
 
-### SQLite
-8. `ORDER BY created_at DESC` 同秒写入顺序不稳定，必须加 `, id DESC` 二级排序（测试暴露）
+## 3. 技术栈与架构指标
 
-### Windows 运维
-9. Hermes 排障禁用过 LTE 适配器 → WinRT SMS 找不到设备（错误 0x00000000 回退 Mock）。恢复：`Enable-NetAdapter`（Quectel EM05-CN），固件/网络设备自动恢复 OK
-10. git-bash (MSYS) 下反斜杠路径 `\r` `\t` 会被转义，启动 exe 用 `powershell.exe Start-Process 'D:\...'` 最稳
+- **前端**: React 19 + Tailwind CSS 4 + Lucide React + React Router DOM 7
+- **后端**: Tauri 2 (Rust) + bundled SQLite (WAL 模式) + windows crate 0.61
+- **SMS 通道**: WinRT SmsDevice2 原生驱动通道（优先） + Mock 离线演示通道（降级容错）
+- **打包体积**: 4.3 MB 单文件可执行程序，解压即用
+- **便携存储**: 支持应用根目录下建立 `data` 目录自动重定向 SQLite 数据文件
 
-## 6. Git 提交历史（M0–M6）
+---
 
-| commit | 说明 |
+## 4. Git 提交记录
+
+| Commit | 说明 |
 |--------|------|
-| 877e5d3 | [m5] 群发+送达回执+桌面通知 |
-| a976d68 | [m4] 收件箱/写短信/已发送 页面联调 |
-| 8f32586 | [m3] subscribe_inbox_events 编译修复 |
-| 996c588 | [m3] get_inbox 自动同步设备短信 |
-| a9a424e | [m3] WinRT 真实通道集成 |
-| e57f22c | [m3] SmsChannel trait 抽象 |
-| fc74f11 | [m2] SQLite 数据层 |
-| 44ea9d4 | [m1] 初始脚手架 |
-
-## 7. v2.0 展望（PRD §1.3 排除项）
-
-- 自动回复 / 规则引擎
-- AT 串口通道 B（USB PID_0312 切换，完整 PDU 控制）
-- 端到端加密
-- 便携模式（数据存 exe 同目录）
-- 通知点击跳转到对应会话
+| 549f7da | feat: release v0.2.0 - fix SIM message capacity, timezone offset, long SMS ordering, and device compatibility |
+| bed3ab5 | chore: 移除构建日志并加入 gitignore；同步脱敏重写后的新 commit hash |
+| 70a7098 | [m6] docs: M6 实机验收通过 + 项目复盘总结 |
+| 877e5d3 | [m5] feat: 群发+送达回执+桌面通知 (后端+前端) |
+| a976d68 | [m4] feat: 收件箱/写短信/已发送 页面联调 |

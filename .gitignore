@@ -6,3 +6,5 @@ src-tauri/target/
 .env.*
 cargo-check.*
 replacements.txt
+app/
+release/**/*.exe
