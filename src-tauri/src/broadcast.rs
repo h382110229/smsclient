@@ -19,7 +19,7 @@ use std::thread;
 use std::time::Duration;
 
 use rusqlite::{params, Connection};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 
 use crate::contacts::normalize_phone;
 use crate::db::DbState;
@@ -337,12 +337,9 @@ pub fn start_broadcast(
             })
             .unwrap_or(6000);
 
-        // 获取 DB 路径（线程独立打开）
-        let db_path = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join("smsclient.db");
+        // 获取 DB 路径（统一便携模式与安装模式，线程独立打开）
+        let db_path = crate::db::resolve_db_path(&app)
+            .map_err(|e| e.to_string())?;
 
         thread::spawn(move || {
             run_broadcast(task_id, content, unique, cancel, interval_ms, db_path, app);

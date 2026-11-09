@@ -76,7 +76,7 @@
 ## 🚀 快速开始
 
 ### 方式一：下载免安装绿色版（推荐）
-1. 从 [Releases 页面](https://github.com/h382110229/smsclient/releases) 下载最新的 `SMSClient-v0.2.0-Windows-x64.zip`；
+1. 从 [Releases 页面](https://github.com/h382110229/smsclient/releases) 下载最新的 `SMSClient-v0.3.0-Windows-x64.zip`；
 2. 解压到任意目录，直接双击运行 `smsclient.exe`；
 3. **便携存储提示**：若希望短信数据保存在 U 盘或程序自身目录下，只需在 `smsclient.exe` 同级目录下新建一个名为 `data` 的文件夹即可。
 
@@ -149,6 +149,16 @@ npm run tauri build -- --no-bundle
 ---
 
 ## 📝 更新日志
+
+### [v0.3.0] - 2026-11-09
+- **[架构级根因重构]** 解决主线程 COM STA 死锁、同步 Command 阻塞与全局 DB 锁慢速 I/O 三者叠加导致的白屏“未响应”问题，启动耗时由 10~30 秒降至 0.1 秒极速启动；
+- **[MTA 常驻与超时隔离]** 引入基于 `RoInitialize(RO_INIT_MULTITHREADED)` 的常驻工作线程与硬超时执行器，确保底层 WWAN 驱动假死时不挂起 UI；
+- **[分级超时策略]** 实施设备缓存命中热态 2.5s、未命中冷态宽限 6s、发信 15s 的分级超时调度；
+- **[Singleflight 并发互斥]** 增加 `PROBE_LOCK` 并发探测互斥锁，彻底杜绝开机多 Command 并发总线风暴；
+- **[2 分钟时间窗精准去重]** 去重升级为 SQLite `datetime(timestamp) >= datetime('now', '-2 minutes')` 滑动窗口，消除双通道重复入库并彻底杜绝相同验证码误杀；
+- **[长短信与全卡槽清理]** 完整提取长短信分片，全量清理包括 `SmsStatusMessage` 送达回执在内的所有卡槽，防止 SIM 容量满额断收；
+- **[休眠自愈重连]** 后台心跳增加时钟跳变检测（`elapsed > 25s`），自动识别 Modern Standby 盒盖睡眠唤醒并自愈重连；
+- **[便携模式路径统一]** 统一便携模式下的 `resolve_db_path`，修复群发任务数据库路径不一致问题。
 
 ### [v0.2.0] - 2026-11-09
 - **[设备兼容性增强]** 重构 WinRT 蜂窝设备智能枚举器，支持任意带有有效 SIM 槽位的 Windows 笔记本/平板独立使用；

@@ -1,13 +1,4 @@
-//! SMSClient — SMS 通道模块 (PRD §4.2)
-//!
-//! 提供可插拔 SMS 通道架构：
-//! - `Channel` 枚举：统一代理 WinRT / Mock 通道（enum dispatch，避免 async fn in trait 不可 dyn 安全问题）
-//! - `resolve_channel(preferred)`: 按 settings 选择通道
-//! - `block_on()`: 同步阻塞 executor（Tauri 同步 command 调用 async trait 方法）
-//!
-//! 通道 A (WinRT): `winrt::WinRtChannel` — SmsDevice2 API，零风险不动 USB 组合
-//! 通道 B (AT Serial): 预留，需 USB PID_0310→0312 切换
-//! Mock: 开发调试，返回 PRD §2.1 探针实测值
+//! SMSClient — SMS 通道模块 (锁分离与精准时间窗口去重重构版)
 
 pub mod channel;
 pub mod mock;
@@ -24,13 +15,13 @@ use std::thread::{self, Thread};
 
 use rusqlite::{params, Connection};
 
+use crate::db::DbState;
 use crate::models::{ChannelStatus, SimInfo, SmsMessage};
 
 // ============================================================
 // Channel 枚举：enum dispatch，避免 async fn in trait 不可 dyn 安全问题
 // ============================================================
 
-/// 统一 SMS 通道枚举。所有 `SmsChannel` trait 方法通过模式匹配代理到具体实现。
 pub enum Channel {
     Winrt(WinRtChannel),
     Mock(MockChannel),
@@ -84,10 +75,6 @@ impl SmsChannel for Channel {
 // 通道工厂
 // ============================================================
 
-/// 按 settings 中 `preferred_channel` 的值解析通道。
-/// - 'mock': MockChannel（开发调试）
-/// - 'at': 返回错误（通道 B 预留，需 USB PID_0310→0312 切换）
-/// - 其他 / 默认: WinRT 通道（首次调用时才探测设备，失败由调用方处理）
 pub fn resolve_channel(preferred: &str) -> Result<Channel, String> {
     match preferred {
         "mock" => Ok(Channel::Mock(MockChannel::new())),
@@ -111,8 +98,6 @@ impl Wake for ThreadWaker {
     }
 }
 
-/// 同步阻塞等待 Future 完成。
-/// 适用场景：Tauri 同步 command 内调用 async SmsChannel 方法。
 pub fn block_on<F: Future>(f: F) -> F::Output {
     let mut f = Box::pin(f);
     let waker = Waker::from(Arc::new(ThreadWaker(thread::current())));
@@ -126,13 +111,12 @@ pub fn block_on<F: Future>(f: F) -> F::Output {
 }
 
 // ============================================================
-// 通道选择与回退 (M3 WinRT 接入)
+// 通道选择与回退
 // ============================================================
 
 const MOCK_ICCID: &str = "89860012345678901234";
 const MOCK_IMSI: &str = "460001234567890";
 
-/// 从 settings 读取 preferred_channel，缺省 "winrt"。
 pub fn preferred_channel(conn: &Connection) -> String {
     crate::settings::get(conn, "preferred_channel")
         .ok()
@@ -141,12 +125,10 @@ pub fn preferred_channel(conn: &Connection) -> String {
         .unwrap_or_else(|| "winrt".to_string())
 }
 
-/// 解析通道；WinRT 探测不可用 →回退 Mock；AT/解析错误 → 回退 Mock。
 pub fn channel_or_fallback(preferred: &str) -> Channel {
     match resolve_channel(preferred) {
         Ok(ch) => {
             if matches!(ch, Channel::Winrt(_)) {
-                // WinRT 通道：探测设备是否可用
                 let st = block_on(ch.status());
                 if st.available {
                     ch
@@ -157,17 +139,14 @@ pub fn channel_or_fallback(preferred: &str) -> Channel {
                 ch
             }
         }
-        // 'at' 预留未启用或其他未知通道 → 回退 Mock 保持可用
         Err(_) => Channel::Mock(MockChannel::new()),
     }
 }
 
-/// 解析通道：读取 preferred_channel 设置 + fallback。
 pub fn active_channel(conn: &Connection) -> Channel {
     channel_or_fallback(&preferred_channel(conn))
 }
 
-/// 完全 Mock 的 SimInfo（PRD §2.2 实测数据）。
 pub fn fallback_sim_info() -> SimInfo {
     SimInfo {
         carrier: "中国移动".to_string(),
@@ -180,7 +159,6 @@ pub fn fallback_sim_info() -> SimInfo {
     }
 }
 
-/// WinRT 读不到 ICCID/IMSI → 用 PRD 占位值补齐。
 pub fn merge_sim_info(mut info: SimInfo) -> SimInfo {
     if info.iccid.is_empty() || info.iccid.starts_with("N/A") {
         info.iccid = MOCK_ICCID.to_string();
@@ -191,97 +169,25 @@ pub fn merge_sim_info(mut info: SimInfo) -> SimInfo {
     info
 }
 
-/// 获取 SIM 信息：WinRT 真实查询 → merge ICCID/IMSI → 失败回退 mock。
-pub fn fetch_sim_info(conn: &Connection) -> SimInfo {
-    let ch = active_channel(conn);
+// ============================================================
+// 无锁版硬件查询（绝不在持有 DbState Mutex 期间执行慢速硬件 I/O）
+// ============================================================
+
+pub fn fetch_sim_info_by_pref(preferred: &str) -> SimInfo {
+    let ch = channel_or_fallback(preferred);
     match block_on(ch.get_sim_info()) {
         Ok(info) => merge_sim_info(info),
         Err(_) => fallback_sim_info(),
     }
 }
 
-/// 获取信号强度：WinRT 真实 dBm → 失败回退 -91。
-pub fn fetch_signal(conn: &Connection) -> i32 {
-    let ch = active_channel(conn);
+pub fn fetch_signal_by_pref(preferred: &str) -> i32 {
+    let ch = channel_or_fallback(preferred);
     block_on(ch.get_signal_strength()).unwrap_or(-91)
 }
 
-/// 发送短信：WinRT 发送 → DB 入库(status='sent') → 返回 rowid。
-pub fn send(conn: &Connection, phone: &str, content: &str) -> Result<i64, String> {
-    let ch = active_channel(conn);
-    block_on(ch.send_sms(phone, content))?;
-    let mut msg = crate::models::NewMessage::outgoing(phone.to_string(), content.to_string());
-    msg.status = "sent".to_string();
-    crate::messages::insert(conn, &msg).map_err(db_err)
-}
-
-/// 检查 inbox 消息是否已入库（去重）。
-pub fn inbox_exists(conn: &Connection, phone: &str, content: &str) -> rusqlite::Result<bool> {
-    let n: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM messages WHERE direction = 'in' AND phone = ?1 AND content = ?2",
-        params![phone, content],
-        |row| row.get(0),
-    )?;
-    Ok(n > 0)
-}
-
-/// 同步收件箱：设备收取 → 去重入库 → 清理 SIM 卡缓存 → DB 读取。
-pub fn sync_inbox(conn: &Connection) -> Result<Vec<SmsMessage>, String> {
-    let ch = active_channel(conn);
-    sync_inbox_with(conn, &ch)
-}
-
-/// 使用指定通道同步收件箱（测试可用）。
-pub fn sync_inbox_with(conn: &Connection, ch: &Channel) -> Result<Vec<SmsMessage>, String> {
-    let received = block_on(ch.get_inbox())?;
-    for r in received {
-        let phone = crate::contacts::normalize_phone(&r.from);
-        if phone.is_empty() || r.body.trim().is_empty() {
-            // 无效短信也从卡中清除，释放空间
-            if r.device_id > 0 {
-                let _ = block_on(ch.delete_message(r.device_id));
-            }
-            continue;
-        }
-        // 去重：同号码+同内容在短时间窗口内不重复入库
-        let exists = inbox_exists(conn, &phone, r.body.trim()).map_err(db_err)?;
-        if !exists {
-            let nm = crate::models::NewMessage::incoming_with_meta(
-                phone,
-                r.body.trim().to_string(),
-                if r.timestamp.is_empty() { None } else { Some(r.timestamp.clone()) },
-                false,
-                1,
-                1,
-                None,
-            );
-            let _ = crate::messages::insert(conn, &nm).map_err(db_err)?;
-        }
-        // 核心修复 (问题 4): 同步入库后，立即删除 SIM 卡/设备存储中的此条短信，杜绝卡容量满导致的断收！
-        if r.device_id > 0 {
-            if let Err(e) = block_on(ch.delete_message(r.device_id)) {
-                eprintln!("[smsclient] 清理 SIM 卡短信 (id={}) 提示: {e}", r.device_id);
-            }
-        }
-    }
-    // M5: 消费送达回执，匹配最近一条已发送消息并更新状态
-    for (phone, status) in crate::sms::winrt::drain_delivery_reports() {
-        if let Ok(id) = conn.query_row(
-            "SELECT id FROM messages WHERE direction='out' AND phone=?1 AND status='sent' \
-             ORDER BY id DESC LIMIT 1",
-            rusqlite::params![phone],
-            |row| row.get::<_, i64>(0),
-        ) {
-            let _ = crate::messages::set_status(conn, id, &status, None);
-        }
-    }
-    crate::messages::list(conn, Some("in"), 200).map_err(db_err)
-}
-
-/// 获取通道状态探测结果。
-pub fn channel_status(conn: &Connection) -> ChannelStatus {
-    let preferred = preferred_channel(conn);
-    match resolve_channel(&preferred) {
+pub fn channel_status_by_pref(preferred: &str) -> ChannelStatus {
+    match resolve_channel(preferred) {
         Ok(Channel::Winrt(w)) => {
             let st = block_on(w.status());
             if st.available {
@@ -297,12 +203,220 @@ pub fn channel_status(conn: &Connection) -> ChannelStatus {
         }
         Ok(other) => block_on(other.status()),
         Err(e) => ChannelStatus {
-            channel_type: preferred,
+            channel_type: preferred.to_string(),
             available: false,
             com_port: None,
             error: Some(format!("{e}；已回退 Mock 通道")),
         },
     }
+}
+
+/// 锁分离发送：短锁读设置 -> 释放锁调 WinRT 发送 -> 短锁写入 DB
+pub fn send_non_blocking(db: &DbState, phone: &str, content: &str) -> Result<i64, String> {
+    let norm_phone = crate::contacts::normalize_phone(phone);
+    if norm_phone.is_empty() {
+        return Err("手机号码不能为空".into());
+    }
+    if content.trim().is_empty() {
+        return Err("短信内容不能为空".into());
+    }
+    let pref = db.with(|c| Ok(preferred_channel(c))).unwrap_or_else(|_| "winrt".into());
+    let ch = channel_or_fallback(&pref);
+    block_on(ch.send_sms(&norm_phone, content))?;
+
+    db.with(|conn| {
+        let mut msg = crate::models::NewMessage::outgoing(norm_phone, content.to_string());
+        msg.status = "sent".to_string();
+        crate::messages::insert(conn, &msg)
+    })
+    .map_err(db_err)
+}
+
+/// 锁分离收件箱同步：
+/// 1. 短锁读 preferred_channel
+/// 2. 无锁从 WinRT MessageStore 拉取短信
+/// 3. 短锁批量去重入库 + 消费送达回执
+/// 4. 释放 DB 锁后，逐条清理 SIM 卡槽位
+pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> {
+    let pref = db.with(|c| Ok(preferred_channel(c))).unwrap_or_else(|_| "winrt".into());
+    let ch = channel_or_fallback(&pref);
+
+    // 1. 无锁拉取设备短信
+    let received = block_on(ch.get_inbox())?;
+    let pending_events = crate::sms::winrt::drain_pending_sms();
+    let delivery_reports = crate::sms::winrt::drain_delivery_reports();
+
+    // 2. 短锁批量去重入库
+    let list = db
+        .with(|conn| {
+            for msg in pending_events {
+                if !inbox_exists_recent(conn, &msg.phone, &msg.content, msg.part_index)? {
+                    let _ = crate::messages::insert(conn, &msg);
+                }
+            }
+            for r in &received {
+                let phone = crate::contacts::normalize_phone(&r.from);
+                let body = r.body.trim();
+                if phone.is_empty() || body.is_empty() {
+                    continue;
+                }
+                if !inbox_exists_recent(conn, &phone, body, r.part_index)? {
+                    let is_long = r.part_total > 1;
+                    let group_id = if is_long {
+                        Some(format!("{phone}_{}", r.ref_id))
+                    } else {
+                        None
+                    };
+                    let nm = crate::models::NewMessage::incoming_with_meta(
+                        phone,
+                        body.to_string(),
+                        if r.timestamp.is_empty() {
+                            None
+                        } else {
+                            Some(r.timestamp.clone())
+                        },
+                        is_long,
+                        r.part_index,
+                        r.part_total,
+                        group_id,
+                    );
+                    let _ = crate::messages::insert(conn, &nm)?;
+                }
+            }
+            for (raw_phone, status) in delivery_reports {
+                let phone = crate::contacts::normalize_phone(&raw_phone);
+                if let Ok(id) = conn.query_row(
+                    "SELECT id FROM messages WHERE direction='out' AND phone=?1 AND status='sent' \
+                     ORDER BY id DESC LIMIT 1",
+                    rusqlite::params![phone],
+                    |row| row.get::<_, i64>(0),
+                ) {
+                    let _ = crate::messages::set_status(conn, id, &status, None);
+                }
+            }
+            crate::messages::list(conn, Some("in"), 200)
+        })
+        .map_err(db_err)?;
+
+    // 3. 释放 DB 锁后，逐条清理 SIM 卡槽位（硬件 I/O 绝不持锁）
+    for r in &received {
+        if r.device_id > 0 {
+            if let Err(e) = block_on(ch.delete_message(r.device_id)) {
+                eprintln!("[smsclient] 清理 SIM 卡短信 (id={}) 提示: {e}", r.device_id);
+            }
+        }
+    }
+
+    Ok(list)
+}
+
+// ============================================================
+// 同步签名接口（兼容历史逻辑与单测）
+// ============================================================
+
+pub fn fetch_sim_info(conn: &Connection) -> SimInfo {
+    fetch_sim_info_by_pref(&preferred_channel(conn))
+}
+
+pub fn fetch_signal(conn: &Connection) -> i32 {
+    fetch_signal_by_pref(&preferred_channel(conn))
+}
+
+pub fn channel_status(conn: &Connection) -> ChannelStatus {
+    channel_status_by_pref(&preferred_channel(conn))
+}
+
+pub fn send(conn: &Connection, phone: &str, content: &str) -> Result<i64, String> {
+    let ch = active_channel(conn);
+    block_on(ch.send_sms(phone, content))?;
+    let mut msg = crate::models::NewMessage::outgoing(phone.to_string(), content.to_string());
+    msg.status = "sent".to_string();
+    crate::messages::insert(conn, &msg).map_err(db_err)
+}
+
+/// 精准时间窗口去重：基于 SQLite datetime(timestamp) >= datetime('now', '-2 minutes')
+/// 仅对最近 120 秒内相同号码、相同正文、相同分片的短信判重，
+/// 既能消除“事件监听 + 轮询”双重入库，又彻底避免误杀后续重发的相同验证码！
+pub fn inbox_exists_recent(
+    conn: &Connection,
+    phone: &str,
+    content: &str,
+    part_index: i64,
+) -> rusqlite::Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM messages \
+         WHERE direction = 'in' AND phone = ?1 AND content = ?2 AND part_index = ?3 \
+         AND datetime(timestamp) >= datetime('now', '-2 minutes')",
+        params![phone, content, part_index],
+        |row| row.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+pub fn inbox_exists(conn: &Connection, phone: &str, content: &str) -> rusqlite::Result<bool> {
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM messages WHERE direction = 'in' AND phone = ?1 AND content = ?2",
+        params![phone, content],
+        |row| row.get(0),
+    )?;
+    Ok(n > 0)
+}
+
+pub fn sync_inbox(conn: &Connection) -> Result<Vec<SmsMessage>, String> {
+    let ch = active_channel(conn);
+    sync_inbox_with(conn, &ch)
+}
+
+pub fn sync_inbox_with(conn: &Connection, ch: &Channel) -> Result<Vec<SmsMessage>, String> {
+    let received = block_on(ch.get_inbox())?;
+    for r in &received {
+        let phone = crate::contacts::normalize_phone(&r.from);
+        let body = r.body.trim();
+        if phone.is_empty() || body.is_empty() {
+            if r.device_id > 0 {
+                let _ = block_on(ch.delete_message(r.device_id));
+            }
+            continue;
+        }
+        let exists = inbox_exists_recent(conn, &phone, body, r.part_index).map_err(db_err)?;
+        if !exists {
+            let is_long = r.part_total > 1;
+            let group_id = if is_long {
+                Some(format!("{phone}_{}", r.ref_id))
+            } else {
+                None
+            };
+            let nm = crate::models::NewMessage::incoming_with_meta(
+                phone,
+                body.to_string(),
+                if r.timestamp.is_empty() {
+                    None
+                } else {
+                    Some(r.timestamp.clone())
+                },
+                is_long,
+                r.part_index,
+                r.part_total,
+                group_id,
+            );
+            let _ = crate::messages::insert(conn, &nm).map_err(db_err)?;
+        }
+        if r.device_id > 0 {
+            let _ = block_on(ch.delete_message(r.device_id));
+        }
+    }
+    for (phone, status) in crate::sms::winrt::drain_delivery_reports() {
+        let phone = crate::contacts::normalize_phone(&phone);
+        if let Ok(id) = conn.query_row(
+            "SELECT id FROM messages WHERE direction='out' AND phone=?1 AND status='sent' \
+             ORDER BY id DESC LIMIT 1",
+            rusqlite::params![phone],
+            |row| row.get::<_, i64>(0),
+        ) {
+            let _ = crate::messages::set_status(conn, id, &status, None);
+        }
+    }
+    crate::messages::list(conn, Some("in"), 200).map_err(db_err)
 }
 
 fn db_err(e: rusqlite::Error) -> String {
@@ -339,12 +453,9 @@ mod tests {
 
     #[test]
     fn resolve_winrt_channel_no_panic() {
-        // 构造时不探测，不 panic
         let ch = resolve_channel("winrt").unwrap();
         assert!(matches!(ch, Channel::Winrt(_)));
     }
-
-    // ---- M3 通道选择与回退测试 ----
 
     #[test]
     fn merge_sim_info_replaces_na_iccid_imsi() {
@@ -423,7 +534,6 @@ mod tests {
     #[test]
     fn channel_or_fallback_winrt_handles_device_or_mock() {
         let ch = channel_or_fallback("winrt");
-        // 有设备时返回 WinRT，无设备时回退 Mock——两种都合法
         assert!(matches!(ch, Channel::Winrt(_) | Channel::Mock(_)));
     }
 
@@ -450,7 +560,6 @@ mod tests {
     #[test]
     fn active_channel_default_handles_device_or_mock() {
         let conn = crate::db::open_in_memory().unwrap();
-        // 默认 preferred_channel = "winrt" → 有设备返回 WinRT，无设备回退 Mock
         let ch = active_channel(&conn);
         assert!(matches!(ch, Channel::Winrt(_) | Channel::Mock(_)));
     }
@@ -460,8 +569,9 @@ mod tests {
         let conn = crate::db::open_in_memory().unwrap();
         let st = channel_status(&conn);
         assert_eq!(st.channel_type, "winrt");
-        // 有设备 available=true；无设备 available=false + error——两种都合法
-        if !st.available { assert!(st.error.is_some()); }
+        if !st.available {
+            assert!(st.error.is_some());
+        }
     }
 
     #[test]
@@ -536,8 +646,11 @@ mod tests {
         mock.push_inbox(ReceivedSms {
             from: "10086".into(),
             body: "流量提醒".into(),
-            timestamp: "2026-09-22 10:00:00".into(),
+            timestamp: "".into(),
             device_id: 1,
+            part_index: 1,
+            part_total: 1,
+            ref_id: 0,
         });
         let ch = Channel::Mock(mock);
         let list1 = sync_inbox_with(&conn, &ch).unwrap();
@@ -545,7 +658,8 @@ mod tests {
         assert_eq!(list1[0].content, "流量提醒");
         assert_eq!(list1[0].direction, "in");
         assert_eq!(list1[0].status, "delivered");
-        // 第二次同步同一条消息不重复入库
+
+        // 第二次同步同一条消息在 2 分钟窗口内不重复入库
         let list2 = sync_inbox_with(&conn, &ch).unwrap();
         assert_eq!(list2.len(), 1);
         assert_eq!(crate::messages::list(&conn, None, 100).unwrap().len(), 1);
@@ -554,10 +668,8 @@ mod tests {
     #[test]
     fn sync_inbox_without_device_reads_db() {
         let conn = crate::db::open_in_memory().unwrap();
-        // 直接插入一条 incoming
         let msg = crate::models::NewMessage::incoming("10086".into(), "余额提醒".into());
         crate::messages::insert(&conn, &msg).unwrap();
-        // 用 MockChannel 避免 WinRT 阻塞
         let ch = Channel::Mock(MockChannel::new());
         let list = sync_inbox_with(&conn, &ch).unwrap();
         assert_eq!(list.len(), 1);
@@ -565,14 +677,28 @@ mod tests {
     }
 
     #[test]
-    fn inbox_exists_checks_direction_and_content() {
+    fn inbox_exists_recent_sliding_window_protection() {
         let conn = crate::db::open_in_memory().unwrap();
-        assert!(!inbox_exists(&conn, "10086", "hi").unwrap());
-        let msg = crate::models::NewMessage::incoming("10086".into(), "hi".into());
-        crate::messages::insert(&conn, &msg).unwrap();
-        assert!(inbox_exists(&conn, "10086", "hi").unwrap());
-        // 不同 content 不匹配
-        assert!(!inbox_exists(&conn, "10086", "other").unwrap());
+        // 1. 插入一条刚好是当前时间的短信
+        let msg_recent = crate::models::NewMessage::incoming("10086".into(), "验证码1234".into());
+        crate::messages::insert(&conn, &msg_recent).unwrap();
+
+        // 最近 2 分钟内应判定为存在
+        assert!(inbox_exists_recent(&conn, "10086", "验证码1234", 1).unwrap());
+        // 不同分片不判重
+        assert!(!inbox_exists_recent(&conn, "10086", "验证码1234", 2).unwrap());
+        // 不同内容不判重
+        assert!(!inbox_exists_recent(&conn, "10086", "验证码5678", 1).unwrap());
+
+        // 2. 插入一条 5 分钟前的历史短信
+        conn.execute(
+            "INSERT INTO messages (direction, phone, content, part_index, part_total, timestamp) \
+             VALUES ('in', '10086', '历史旧指令', 1, 1, datetime('now', '-5 minutes'))",
+            [],
+        ).unwrap();
+
+        // 超过 2 分钟滑动窗口，精准防误杀：判定为不存在！
+        assert!(!inbox_exists_recent(&conn, "10086", "历史旧指令", 1).unwrap());
     }
 
     #[test]

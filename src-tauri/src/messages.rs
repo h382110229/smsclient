@@ -153,20 +153,21 @@ fn map_err(e: rusqlite::Error) -> String {
     }
 }
 
-/// 获取收件箱（direction='in'，最新在前，上限 200 条）
+/// 获取收件箱（纯 DB 极速读取，彻底剥离硬件同步，绝不阻塞 UI 或争抢 SIM 卡总线）
 #[tauri::command]
-pub fn get_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> {
+pub async fn get_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> {
     db.with(|c| {
-        // 先消费事件驱动缓冲区（SmsDevice2 SmsMessageReceived 推入，非致命，忽略重复）
+        // 消费事件驱动缓冲区（SmsDevice SmsMessageReceived 兜底推入）
         for msg in crate::sms::winrt::drain_pending_sms() {
-            let _ = insert(c, &msg);
-        }
-        // 先从 WinRT 设备同步短信到 DB（非致命，失败仅 eprintln）
-        if let Err(e) = crate::sms::sync_inbox(c) {
-            eprintln!("[smsclient] 设备短信同步失败（非致命）: {e}");
+            if !crate::sms::inbox_exists_recent(c, &msg.phone, &msg.content, msg.part_index)
+                .unwrap_or(false)
+            {
+                let _ = insert(c, &msg);
+            }
         }
         list(c, Some("in"), 200)
-    }).map_err(map_err)
+    })
+    .map_err(map_err)
 }
 
 /// 获取已发送（direction='out'，最新在前，上限 200 条）

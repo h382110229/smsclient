@@ -1,14 +1,4 @@
-//! SMSClient — Tauri 2 Backend (M2 SQLite 数据层 + M3 WinRT 通道接入)
-//!
-//! M1 → M2 → M3 演进：
-//! - M3: WinRT 通道接入 lib.rs command 层
-//!   get_sim_info / get_signal_strength / send_sms → 活动通道真实查询
-//!   get_channel_status → 通道状态探测（新增）
-//!   get_inbox → 启动时同步设备短信 → DB 读取（messages::get_inbox）
-//!   新增 sync_device_inbox → 按需同步 + 返回最新列表
-//!   WinRT 不可用时自动回退 Mock 通道
-//! - M2: 联系人 CRUD + 消息/设置存取
-//! - M1: 四个 mock command + 7 页面
+//! SMSClient — Tauri 2 Backend (非阻塞异步架构重构版)
 
 pub mod broadcast;
 pub mod contacts;
@@ -18,64 +8,61 @@ pub mod models;
 pub mod settings;
 pub mod sms;
 
-use tauri::{Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::db::DbState;
 use crate::models::{ChannelStatus, SimInfo, SmsMessage};
 
 // ============================================================
-// M3 命令：通过活动通道真实查询（WinRT/Mock 回退）
+// M3 命令：全部改为 async fn + spawn_blocking，且绝不在持有 DB 锁时执行硬件 I/O
 // ============================================================
 
-/// 获取 SIM 卡信息（M3: WinRT 真实查询 carrier/signal/network，失败回退 mock。
-/// ICCID/IMSI 保留 mock 值，WinRT 读不到。）
 #[tauri::command]
-fn get_sim_info(db: State<'_, DbState>) -> SimInfo {
-    db.0.lock()
-        .map(|g| sms::fetch_sim_info(&g))
-        .unwrap_or_else(|_| sms::fallback_sim_info())
+async fn get_sim_info(db: State<'_, DbState>) -> Result<SimInfo, String> {
+    let preferred = db.with(|c| Ok(sms::preferred_channel(c))).unwrap_or_else(|_| "winrt".into());
+    tauri::async_runtime::spawn_blocking(move || sms::fetch_sim_info_by_pref(&preferred))
+        .await
+        .map_err(|e| format!("任务执行异常: {e}"))
 }
 
-/// 获取信号强度（M3: WinRT 真实 dBm，回退 -91）。
-/// 返回 dBm（负值），前端用 signalToPercent() 转换为百分比。
 #[tauri::command]
-fn get_signal_strength(db: State<'_, DbState>) -> i32 {
-    db.0.lock()
-        .map(|g| sms::fetch_signal(&g))
-        .unwrap_or(-91)
+async fn get_signal_strength(db: State<'_, DbState>) -> Result<i32, String> {
+    let preferred = db.with(|c| Ok(sms::preferred_channel(c))).unwrap_or_else(|_| "winrt".into());
+    tauri::async_runtime::spawn_blocking(move || sms::fetch_signal_by_pref(&preferred))
+        .await
+        .map_err(|e| format!("任务执行异常: {e}"))
 }
 
-/// 发送短信（M3: WinRT SendMessageAsync 真实发送 + DB insert，成功返回 DB rowid）。
 #[tauri::command]
-fn send_sms(db: State<'_, DbState>, phone: String, message: String) -> Result<String, String> {
-    let guard = db
-        .0
-        .lock()
-        .map_err(|_| "数据库连接锁被占用".to_string())?;
-    sms::send(&guard, &phone, &message).map(|id| id.to_string())
+async fn send_sms(
+    app: AppHandle,
+    phone: String,
+    message: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbState>();
+        sms::send_non_blocking(&db, &phone, &message).map(|id| id.to_string())
+    })
+    .await
+    .map_err(|e| format!("发送任务异常: {e}"))?
 }
 
-/// 获取通道状态（M3 新增）：探测活动通道是否可用，返回通道类型与错误信息。
 #[tauri::command]
-fn get_channel_status(db: State<'_, DbState>) -> ChannelStatus {
-    db.0.lock()
-        .map(|g| sms::channel_status(&g))
-        .unwrap_or_else(|_| ChannelStatus {
-            channel_type: "unknown".into(),
-            available: false,
-            com_port: None,
-            error: Some("数据库连接锁被占用".into()),
-        })
+async fn get_channel_status(db: State<'_, DbState>) -> Result<ChannelStatus, String> {
+    let preferred = db.with(|c| Ok(sms::preferred_channel(c))).unwrap_or_else(|_| "winrt".into());
+    tauri::async_runtime::spawn_blocking(move || sms::channel_status_by_pref(&preferred))
+        .await
+        .map_err(|e| format!("状态查询异常: {e}"))
 }
 
-/// 按需同步设备短信到 DB（M3 新增）：WinRT 收取 → 去重入库 → 返回最新收件箱列表。
 #[tauri::command]
-fn sync_device_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> {
-    let guard = db
-        .0
-        .lock()
-        .map_err(|_| "数据库连接锁被占用".to_string())?;
-    sms::sync_inbox(&guard)
+async fn sync_device_inbox(app: AppHandle) -> Result<Vec<SmsMessage>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbState>();
+        sms::sync_inbox_non_blocking(&db)
+    })
+    .await
+    .map_err(|e| format!("同步任务异常: {e}"))?
 }
 
 // ============================================================
@@ -83,64 +70,80 @@ fn sync_device_inbox(db: State<'_, DbState>) -> Result<Vec<SmsMessage>, String> 
 // ============================================================
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            // 1. 仅执行纯本地 SQLite 初始化（毫秒级完成，绝不阻塞窗口创建）
             db::init(app).map_err(|e| format!("SQLite 初始化失败: {e}"))?;
-            // M3: 启动时同步设备短信到 DB（block_on 不会死锁，探测已验证）
-            let db = app.state::<DbState>();
-            if let Ok(guard) = db.0.lock() {
-                if let Err(e) = sms::sync_inbox(&guard) {
-                    eprintln!("[smsclient] 启动时设备短信同步失败: {e}");
-                }
-            }
-            // M4: 订阅 SmsDevice SmsMessageReceived 事件
-            let handle = app.handle().clone();
-            if let Err(e) = sms::winrt::subscribe_inbox_events(handle) {
-                eprintln!("[smsclient] 短信事件订阅失败: {e}");
-            }
-            // 启动后台心跳同步兜底（每 15 秒同步一次），防止休眠唤醒或 WinRT 事件漏发导致断收
+
+            // 2. 将所有 WinRT 硬件探测、事件订阅、SIM 卡同步全部移交后台守护线程
             let bg_app = app.handle().clone();
-            std::thread::spawn(move || {
-                use tauri::Emitter;
-                loop {
-                    std::thread::sleep(std::time::Duration::from_secs(15));
+            std::thread::Builder::new()
+                .name("sms-winrt-worker".into())
+                .spawn(move || {
+                    // 稍微延后 300ms 等待主窗口完成首帧渲染
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+
+                    // 挂载 WinRT 实时短信事件监听（内部带超时保护，无硬件时快速返回）
+                    if let Err(e) = sms::winrt::subscribe_inbox_events(bg_app.clone()) {
+                        eprintln!("[smsclient] 短信事件订阅跳过 (无硬件或未就绪): {e}");
+                    }
+
+                    // 首次后台同步 SIM 卡存量短信
                     let db = bg_app.state::<DbState>();
-                    let _ = db.with(|conn| {
-                        if let Ok(msgs) = sms::sync_inbox(conn) {
+                    if let Ok(added) = sms::sync_inbox_non_blocking(&db) {
+                        if !added.is_empty() {
+                            let _ = bg_app.emit("sms-received", ());
+                        }
+                    }
+
+                    let mut last_tick = std::time::Instant::now();
+                    // 15 秒心跳轮询（兼顾热插拔重连、Modern Standby 盒盖休眠自愈与 SIM 卡槽位清理）
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(15));
+                        let elapsed = last_tick.elapsed();
+                        last_tick = std::time::Instant::now();
+
+                        // 时钟跳变检测（正常 sleep 15s，若 elapsed > 25s 说明经历了系统挂起/盒盖休眠唤醒）
+                        if elapsed > std::time::Duration::from_secs(25) {
+                            eprintln!(
+                                "[smsclient] 检测到系统休眠唤醒 (时钟跳变: {:.1}s)，重置设备缓存并重连",
+                                elapsed.as_secs_f32()
+                            );
+                            sms::winrt::invalidate_device_cache();
+                        }
+
+                        // 若之前事件未订阅成功（例如刚插入 SIM 卡或刚从睡眠唤醒），自动尝试重连
+                        sms::winrt::ensure_event_subscribed(&bg_app);
+
+                        let db = bg_app.state::<DbState>();
+                        if let Ok(msgs) = sms::sync_inbox_non_blocking(&db) {
                             if msgs.iter().any(|m| m.status != "read") {
                                 let _ = bg_app.emit("sms-received", ());
                             }
                         }
-                        Ok(())
-                    });
-                }
-            });
+                    }
+                })
+                .expect("failed to spawn sms-winrt-worker thread");
+
             Ok(())
         })
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
-            // M3: 通过活动通道真实查询
             get_sim_info,
             get_signal_strength,
             send_sms,
             get_channel_status,
             sync_device_inbox,
-            // M1+M2: 收件箱（启动时已同步设备短信）
             messages::get_inbox,
-            // M2 新增：联系人 CRUD
             contacts::list_contacts,
             contacts::add_contact,
             contacts::update_contact,
             contacts::delete_contact,
-            // M2 新增：消息查询
             messages::get_sent,
             messages::mark_message_read,
-            // M2 新增：设置存取
             settings::get_setting,
             settings::set_setting,
-            // M5: 群发 + 通知
             broadcast::start_broadcast,
             broadcast::cancel_broadcast,
             broadcast::list_broadcast_tasks,
@@ -163,7 +166,6 @@ mod tests {
     fn fetch_sim_info_returns_or_falls_back() {
         let conn = db::open_in_memory().unwrap();
         let info = sms::fetch_sim_info(&conn);
-        // 有设备返回真实 carrier，无设备回退"中国移动"——两种都合法
         assert!(!info.carrier.is_empty());
     }
 
@@ -171,7 +173,6 @@ mod tests {
     fn fetch_signal_returns_real_or_mock_value() {
         let conn = db::open_in_memory().unwrap();
         let sig = sms::fetch_signal(&conn);
-        // 有设备返回真实信号，无设备回退 -91——两种都合法
         assert!((-110..=-60).contains(&sig), "signal out of range: {sig}");
     }
 
@@ -213,8 +214,11 @@ mod tests {
         mock.push_inbox(sms::ReceivedSms {
             from: "10086".into(),
             body: "流量提醒".into(),
-            timestamp: "2026-09-23 10:00:00".into(),
+            timestamp: "".into(),
             device_id: 1,
+            part_index: 1,
+            part_total: 1,
+            ref_id: 0,
         });
         let ch = Channel::Mock(mock);
         let list1 = sms::sync_inbox_with(&conn, &ch).unwrap();
@@ -232,7 +236,6 @@ mod tests {
         let conn = db::open_in_memory().unwrap();
         let msg = models::NewMessage::incoming("10086".into(), "余额提醒".into());
         messages::insert(&conn, &msg).unwrap();
-        // 用 MockChannel 避免 WinRT 阻塞
         let ch = Channel::Mock(MockChannel::new());
         let list = sms::sync_inbox_with(&conn, &ch).unwrap();
         assert_eq!(list.len(), 1);
@@ -251,8 +254,9 @@ mod tests {
         let conn = db::open_in_memory().unwrap();
         let st = sms::channel_status(&conn);
         assert_eq!(st.channel_type, "winrt");
-        // 有设备 available=true；无设备 available=false + error——两种都合法
-        if !st.available { assert!(st.error.is_some()); }
+        if !st.available {
+            assert!(st.error.is_some());
+        }
     }
 
     #[test]

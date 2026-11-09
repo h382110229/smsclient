@@ -17,6 +17,12 @@ pub struct ReceivedSms {
     pub timestamp: String,
     /// 设备侧消息 ID（用于 delete_message）
     pub device_id: MessageId,
+    /// 长短信当前分片序号 (1-based)
+    pub part_index: i64,
+    /// 长短信总分片数
+    pub part_total: i64,
+    /// 长短信分片引用 ID (TP-MR)
+    pub ref_id: u32,
 }
 
 /// 通道 trait — 无论 WinRT 还是 AT，上层逻辑统一 (PRD §4.2)。

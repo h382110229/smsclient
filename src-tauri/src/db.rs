@@ -106,9 +106,10 @@ impl DbState {
     }
 }
 
-/// 应用启动时调用：初始化数据目录、建库、托管状态。
-/// 支持绿色便携模式：若 exe 所在目录存在 data/ 文件夹，则优先使用本地数据库。
-pub fn init(app: &mut tauri::App) -> Result<()> {
+/// 解析数据库路径，统一便携模式与安装模式：
+/// 若 exe 所在目录存在 data/ 目录，优先使用 exe 所在目录下的 data/smsclient.db；
+/// 否则使用系统标准 app_data_dir/smsclient.db。
+pub fn resolve_db_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf> {
     let portable_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("data")))
@@ -125,8 +126,13 @@ pub fn init(app: &mut tauri::App) -> Result<()> {
             .map_err(|e| rusqlite::Error::InvalidParameterName(format!("create_dir_all: {e}")))?;
         app_dir
     };
+    Ok(dir.join("smsclient.db"))
+}
 
-    let path = dir.join("smsclient.db");
+/// 应用启动时调用：初始化数据目录、建库、托管状态。
+/// 支持绿色便携模式：若 exe 所在目录存在 data/ 文件夹，则优先使用本地数据库。
+pub fn init(app: &mut tauri::App) -> Result<()> {
+    let path = resolve_db_path(app.handle())?;
     let conn = open(&path)?;
     app.manage(DbState(Mutex::new(conn)));
     Ok(())

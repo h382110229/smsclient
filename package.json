@@ -1,7 +1,7 @@
 {
   "name": "smsclient",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "SMSClient — Windows 4G/LTE SMS Desktop Client by ASTeam",
   "type": "module",
   "scripts": {

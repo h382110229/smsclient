@@ -104,6 +104,9 @@ mod tests {
             body: "流量提醒".into(),
             timestamp: "2026-09-22 10:00:00".into(),
             device_id: 1,
+            part_index: 1,
+            part_total: 1,
+            ref_id: 0,
         });
         let msgs = block_on(ch.get_inbox()).unwrap();
         assert_eq!(msgs.len(), 1);
