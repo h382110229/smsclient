@@ -8,7 +8,7 @@
  * - 发送卡片改为手动触发，避免每次加载自动发送真实短信（M3 WinRT 后会真发）
  * - DB-backed: 收件箱数据来自 SQLite messages 表
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Link } from "react-router-dom";
 import {
@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import type { ChannelStatus, SimInfo, SmsMessage } from "@/lib/types";
 import { getChannelStatus } from "@/lib/tauri-bridge";
-import { formatTimestamp, signalToPercent } from "@/lib/utils";
+import { formatTimestamp, mergeLongMessages, signalToPercent } from "@/lib/utils";
 
 export function Dashboard() {
   const [channelStatus, setChannelStatus] = useState<ChannelStatus | null>(null);
@@ -37,6 +37,10 @@ export function Dashboard() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const recentMessages = useMemo(() => {
+    return mergeLongMessages(inbox).slice(0, 5);
+  }, [inbox]);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,7 +91,7 @@ export function Dashboard() {
       <div>
         <h2 className="text-2xl font-bold text-foreground">仪表盘</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          SMSClient v0.2.0 · Windows 4G/LTE 短信桌面客户端
+          SMSClient v1.0.0 · Windows 4G/LTE 短信桌面客户端
         </p>
       </div>
 
@@ -270,7 +274,7 @@ export function Dashboard() {
             </Link>
           </div>
           <div className="border border-border rounded-lg divide-y divide-border">
-            {inbox.map((msg) => (
+            {recentMessages.map((msg) => (
               <div key={msg.id} className="flex items-center gap-4 p-4">
                 <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
                   <MessageCircle size={16} className="text-muted-foreground" />

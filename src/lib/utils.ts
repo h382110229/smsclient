@@ -7,6 +7,7 @@
  */
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { MergedMessage, SmsMessage } from "./types";
 
 /** 合并 Tailwind 类名（去重 + 冲突合并） */
 export function cn(...inputs: ClassValue[]) {
@@ -84,4 +85,92 @@ export function normalizePhone(raw: string): string {
 export function isValidPhone(phone: string): boolean {
   const p = normalizePhone(phone);
   return /^1\d{10}$/.test(p) || /^\d{3,6}$/.test(p);
+}
+
+/** 解析短信时间戳为毫秒数值 */
+export function parseMsgTime(ts: string): number {
+  if (!ts) return 0;
+  let str = ts.trim();
+  if (!str.includes("T")) str = str.replace(" ", "T");
+  if (!str.endsWith("Z") && !/[+-]\d{2}(:\d{2})?$/.test(str)) str += "Z";
+  const t = new Date(str).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+/**
+ * 将长短信分片（Concatenated SMS）按语序合并为单条完整短信
+ * 解决长短信切片后显示成多行多气泡、断句阅读不便的问题。
+ */
+export function mergeLongMessages(messages: SmsMessage[]): MergedMessage[] {
+  if (!messages || messages.length === 0) return [];
+
+  // 1. 严格按时间升序 -> partIndex 升序 -> id 升序排列
+  const sorted = [...messages].sort((a, b) => {
+    const diff = parseMsgTime(a.timestamp) - parseMsgTime(b.timestamp);
+    if (diff !== 0) return diff;
+    if (a.partIndex !== b.partIndex) return a.partIndex - b.partIndex;
+    return a.id - b.id;
+  });
+
+  const merged: MergedMessage[] = [];
+
+  for (const msg of sorted) {
+    if (merged.length === 0) {
+      merged.push({
+        id: msg.id,
+        direction: msg.direction,
+        phone: msg.phone,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        status: msg.status,
+        rawIds: [msg.id],
+        isLong: msg.isLong,
+        partTotal: msg.partTotal,
+        groupId: msg.groupId,
+      });
+      continue;
+    }
+
+    const prev = merged[merged.length - 1];
+    const timeDiff = Math.abs(parseMsgTime(msg.timestamp) - parseMsgTime(prev.timestamp));
+
+    // 判定是否属于同一条长短信的后续分片：
+    // 条件 1: 具有相同的 groupId 且时间差在 120 秒内；
+    // 条件 2: 具有 isLong/partTotal > 1 标记、同一方向且时间差在 60 秒内；
+    // 条件 3: 同号码、同方向、时间差极短（<= 3秒，运营商批量下发分片通常处于同一秒或相隔1秒）；
+    // 条件 4: 时间差在 10 秒内且存在分片标记。
+    const isSameGroup =
+      msg.direction === prev.direction &&
+      msg.phone === prev.phone &&
+      ((msg.groupId && prev.groupId && msg.groupId === prev.groupId && timeDiff <= 120000) ||
+        (msg.partTotal > 1 && prev.partTotal === msg.partTotal && timeDiff <= 60000) ||
+        (timeDiff <= 3000) ||
+        (timeDiff <= 10000 && (msg.partIndex > 1 || msg.isLong || prev.isLong)));
+
+    if (isSameGroup) {
+      // 拼接正文
+      prev.content += msg.content;
+      prev.rawIds.push(msg.id);
+      // 若任一分片未读，则聚合消息视为未读
+      if (msg.status !== "read" && prev.status === "read") {
+        prev.status = msg.status;
+      }
+      prev.timestamp = msg.timestamp;
+    } else {
+      merged.push({
+        id: msg.id,
+        direction: msg.direction,
+        phone: msg.phone,
+        content: msg.content,
+        timestamp: msg.timestamp,
+        status: msg.status,
+        rawIds: [msg.id],
+        isLong: msg.isLong,
+        partTotal: msg.partTotal,
+        groupId: msg.groupId,
+      });
+    }
+  }
+
+  return merged;
 }

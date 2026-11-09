@@ -1,6 +1,6 @@
 [package]
 name = "smsclient"
-version = "0.3.0"
+version = "1.0.0"
 description = "SMSClient — Windows 4G/LTE SMS Desktop Client"
 authors = ["ASTeam"]
 edition = "2021"

@@ -118,7 +118,7 @@ pub fn run() {
 
                         let db = bg_app.state::<DbState>();
                         if let Ok(msgs) = sms::sync_inbox_non_blocking(&db) {
-                            if msgs.iter().any(|m| m.status != "read") {
+                            if !msgs.is_empty() {
                                 let _ = bg_app.emit("sms-received", ());
                             }
                         }

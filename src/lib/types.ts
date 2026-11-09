@@ -51,6 +51,30 @@ export interface SmsMessage {
   timestamp: string;
 }
 
+/** 经长短信拼合后的完整展示消息 */
+export interface MergedMessage {
+  /** 主消息 ID */
+  id: number;
+  /** 消息方向 */
+  direction: "in" | "out";
+  /** 对方号码 */
+  phone: string;
+  /** 完整拼合后的短信正文 */
+  content: string;
+  /** 时间戳 */
+  timestamp: string;
+  /** 投递状态 */
+  status: "pending" | "sent" | "delivered" | "read" | "failed";
+  /** 组成该完整消息的所有原始底层分片消息 ID 列表 */
+  rawIds: number[];
+  /** 长短信标记 */
+  isLong?: boolean;
+  /** 分片总数 */
+  partTotal?: number;
+  /** 分片组 ID */
+  groupId?: string | null;
+}
+
 // ============================================================
 // 联系人 (PRD §5.1 contacts 表 / §5.2)
 // ============================================================

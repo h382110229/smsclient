@@ -5,8 +5,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { SmsMessage } from "@/lib/types";
-import { formatTimestamp } from "@/lib/utils";
+import type { MergedMessage, SmsMessage } from "@/lib/types";
+import { formatTimestamp, mergeLongMessages, parseMsgTime } from "@/lib/utils";
 import {
   MessageCircle,
   RefreshCw,
@@ -21,23 +21,14 @@ import {
 
 interface Conversation {
   phone: string;
-  messages: SmsMessage[];
-  lastMessage: SmsMessage;
+  messages: MergedMessage[];
+  lastMessage: MergedMessage;
   unreadCount: number;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-function parseMsgTime(ts: string): number {
-  if (!ts) return 0;
-  let str = ts.trim();
-  if (!str.includes("T")) str = str.replace(" ", "T");
-  if (!str.endsWith("Z") && !/[+-]\d{2}(:\d{2})?$/.test(str)) str += "Z";
-  const t = new Date(str).getTime();
-  return isNaN(t) ? 0 : t;
-}
 
 function buildConversations(messages: SmsMessage[]): Conversation[] {
   const map = new Map<string, SmsMessage[]>();
@@ -53,20 +44,17 @@ function buildConversations(messages: SmsMessage[]): Conversation[] {
 
   const conversations: Conversation[] = [];
 
-  for (const [phone, msgs] of map) {
-    // 严格按时间升序 -> 长短信序号 partIndex 升序 -> id 升序，确保长短信按正确语序拼接展示
-    msgs.sort((a, b) => {
-      const diff = parseMsgTime(a.timestamp) - parseMsgTime(b.timestamp);
-      if (diff !== 0) return diff;
-      if (a.partIndex !== b.partIndex) return a.partIndex - b.partIndex;
-      return a.id - b.id;
-    });
-    const lastMessage = msgs[msgs.length - 1];
-    const unreadCount = msgs.filter(
+  for (const [phone, rawMsgs] of map) {
+    // 自动将长短信分片拼合为完整消息（解决分片多行显示、断句影响阅读的问题）
+    const mergedMsgs = mergeLongMessages(rawMsgs);
+    if (mergedMsgs.length === 0) continue;
+
+    const lastMessage = mergedMsgs[mergedMsgs.length - 1];
+    const unreadCount = mergedMsgs.filter(
       (m) => m.direction === "in" && m.status !== "read",
     ).length;
 
-    conversations.push({ phone, messages: msgs, lastMessage, unreadCount });
+    conversations.push({ phone, messages: mergedMsgs, lastMessage, unreadCount });
   }
 
   // Sort conversations newest-first
@@ -189,6 +177,12 @@ export function Inbox() {
     },
     [markConversationRead],
   );
+
+  useEffect(() => {
+    if (selectedPhone) {
+      markConversationRead(selectedPhone);
+    }
+  }, [selectedPhone, messages, markConversationRead]);
 
   /* ---------- auto-scroll ---------- */
 

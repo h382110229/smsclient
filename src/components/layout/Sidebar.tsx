@@ -45,7 +45,7 @@ export function Sidebar() {
             SMSClient
           </h1>
           <p className="text-[10px] text-muted-foreground leading-tight">
-            ASTeam · v0.2.0
+            ASTeam · v1.0.0
           </p>
         </div>
       </div>

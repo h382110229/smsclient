@@ -295,6 +295,17 @@ export function Settings() {
             Win11 26200
           </span>
         </SettingRow>
+
+        {/* Client Version */}
+        <SettingRow
+          icon={<FileText size={18} className="text-brand-primary" />}
+          title="客户端版本"
+          description="SMSClient · Windows 4G/LTE 短信桌面客户端"
+        >
+          <span className="text-xs font-semibold text-brand-primary font-mono bg-brand-primary/10 px-2 py-1 rounded">
+            v1.0.0
+          </span>
+        </SettingRow>
       </div>
     </div>
   );
