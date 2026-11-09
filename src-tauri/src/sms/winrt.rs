@@ -15,7 +15,7 @@ use tauri_plugin_notification::NotificationExt;
 use windows::core::Interface;
 use windows::Devices::Enumeration::DeviceInformation;
 use windows::Devices::Sms::{
-    ISmsMessageBase, SmsDevice, SmsDevice2, SmsDeviceStatus, SmsMessageFilter,
+    ISmsMessageBase, SmsBinaryMessage, SmsDevice, SmsDevice2, SmsDeviceStatus, SmsMessageFilter,
     SmsMessageReceivedEventArgs, SmsMessageReceivedEventHandler, SmsStatusMessage, SmsTextMessage,
     SmsTextMessage2,
 };
@@ -218,10 +218,19 @@ impl SmsChannel for WinRtChannel {
                 }
                 continue;
             }
-            if let Ok(text_msg) = item.cast::<SmsTextMessage>() {
+            // 兼容普通文本短信与二进制 PDU 短信 (多数 4G/LTE 模块在 SIM 存储中均以 PDU 二进制格式保存)
+            let text_msg_opt = if let Ok(text_msg) = item.cast::<SmsTextMessage>() {
+                Some(text_msg)
+            } else if let Ok(bin) = item.cast::<SmsBinaryMessage>() {
+                SmsTextMessage::FromBinaryMessage(&bin).ok()
+            } else {
+                None
+            };
+
+            if let Some(text_msg) = text_msg_opt {
                 let from = text_msg.From().map(|s| s.to_string()).unwrap_or_default();
                 let body = text_msg.Body().map(|s| s.to_string()).unwrap_or_default();
-                let device_id = text_msg.Id().unwrap_or(0);
+                let device_id = item.Id().unwrap_or(0);
                 let timestamp = text_msg.Timestamp().map(|dt| format_winrt_dt(&dt)).unwrap_or_default();
 
                 if !from.is_empty() && !body.is_empty() {
@@ -309,7 +318,15 @@ pub fn subscribe_inbox_events(app_handle: tauri::AppHandle) -> Result<(), String
         move |_sender: windows::core::Ref<'_, SmsDevice>,
               args: windows::core::Ref<'_, SmsMessageReceivedEventArgs>| {
             let Some(args_ref) = args.as_ref() else { return Ok(()) };
-            if let Ok(text_msg) = args_ref.TextMessage() {
+            let text_msg_opt = if let Ok(text_msg) = args_ref.TextMessage() {
+                Some(text_msg)
+            } else if let Ok(bin) = args_ref.BinaryMessage() {
+                SmsTextMessage::FromBinaryMessage(&bin).ok()
+            } else {
+                None
+            };
+
+            if let Some(text_msg) = text_msg_opt {
                 let from = text_msg.From().map(|s| s.to_string()).unwrap_or_default();
                 let body = text_msg.Body().map(|s| s.to_string()).unwrap_or_default();
                 let timestamp = text_msg.Timestamp().ok().map(|dt| format_winrt_dt(&dt));
