@@ -134,17 +134,15 @@ export function mergeLongMessages(messages: SmsMessage[]): MergedMessage[] {
     const prev = merged[merged.length - 1];
     const timeDiff = Math.abs(parseMsgTime(msg.timestamp) - parseMsgTime(prev.timestamp));
 
-    // 判定是否属于同一条长短信的后续分片：
+    // 严格判定是否属于同一条长短信的后续分片（Gemini 4 Bug 2：绝不合并两条独立的短消息！）
     // 条件 1: 具有相同的 groupId 且时间差在 120 秒内；
     // 条件 2: 具有 isLong/partTotal > 1 标记、同一方向且时间差在 60 秒内；
-    // 条件 3: 同号码、同方向、时间差极短（<= 3秒，运营商批量下发分片通常处于同一秒或相隔1秒）；
-    // 条件 4: 时间差在 10 秒内且存在分片标记。
+    // 条件 3: 时间差在 10 秒内且存在明确的分片序号或长短信标记。
     const isSameGroup =
       msg.direction === prev.direction &&
       msg.phone === prev.phone &&
       ((msg.groupId && prev.groupId && msg.groupId === prev.groupId && timeDiff <= 120000) ||
         (msg.partTotal > 1 && prev.partTotal === msg.partTotal && timeDiff <= 60000) ||
-        (timeDiff <= 3000) ||
         (timeDiff <= 10000 && (msg.partIndex > 1 || msg.isLong || prev.isLong)));
 
     if (isSameGroup) {

@@ -8,10 +8,14 @@
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { GlobalSmsBanner } from "./GlobalSmsBanner";
 
 export function Layout() {
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground relative">
+      {/* 全局顶部短信通知浮窗 (Gemini 4 Review §3.4) */}
+      <GlobalSmsBanner />
+
       {/* 左侧导航栏 */}
       <Sidebar />
 

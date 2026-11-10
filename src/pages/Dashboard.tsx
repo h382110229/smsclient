@@ -24,6 +24,7 @@ import {
 import type { ChannelStatus, SimInfo, SmsMessage } from "@/lib/types";
 import { getChannelStatus } from "@/lib/tauri-bridge";
 import { formatTimestamp, mergeLongMessages, signalToPercent } from "@/lib/utils";
+import { parseSmsContent } from "@/lib/sms-parser";
 
 export function Dashboard() {
   const [channelStatus, setChannelStatus] = useState<ChannelStatus | null>(null);
@@ -274,29 +275,42 @@ export function Dashboard() {
             </Link>
           </div>
           <div className="border border-border rounded-lg divide-y divide-border">
-            {recentMessages.map((msg) => (
-              <div key={msg.id} className="flex items-center gap-4 p-4">
-                <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
-                  <MessageCircle size={16} className="text-muted-foreground" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-foreground font-mono">
-                      {msg.phone}
-                    </span>
-                    {msg.status !== "read" && (
-                      <span className="w-2 h-2 rounded-full bg-brand-accent" />
-                    )}
+            {recentMessages.map((msg) => {
+              const meta = parseSmsContent(msg.phone, msg.content);
+              return (
+                <div key={msg.id} className="flex items-center gap-4 p-4">
+                  <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <MessageCircle size={16} className="text-muted-foreground" />
                   </div>
-                  <p className="text-sm text-muted-foreground truncate mt-0.5">
-                    {msg.content}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-foreground">
+                        {meta.signature ? `【${meta.signature}】` : msg.phone}
+                      </span>
+                      {meta.signature && (
+                        <span className="text-xs text-muted-foreground font-mono">
+                          {msg.phone}
+                        </span>
+                      )}
+                      {msg.status !== "read" && (
+                        <span className="w-2 h-2 rounded-full bg-brand-accent" />
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate mt-0.5">
+                      {meta.isOtp && meta.otpCode ? (
+                        <span className="font-semibold text-brand-primary mr-1">
+                          [验证码: {meta.otpCode}]
+                        </span>
+                      ) : null}
+                      {meta.cleanBody}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {formatTimestamp(msg.timestamp)}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {formatTimestamp(msg.timestamp)}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

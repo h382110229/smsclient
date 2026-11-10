@@ -237,7 +237,8 @@ pub fn send_non_blocking(db: &DbState, phone: &str, content: &str) -> Result<i64
 /// 2. 无锁从 WinRT MessageStore 拉取短信
 /// 3. 短锁批量去重入库 + 消费送达回执
 /// 4. 释放 DB 锁后，逐条清理 SIM 卡槽位
-pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> {
+/// 锁分离收件箱同步并返回【本次真正新插入的短信列表】（用于精准发射通知事件，杜绝虚假发射）
+pub fn sync_inbox_newly_inserted(db: &DbState) -> Result<Vec<SmsMessage>, String> {
     let pref = db.with(|c| Ok(preferred_channel(c))).unwrap_or_else(|_| "winrt".into());
     let ch = channel_or_fallback(&pref);
 
@@ -246,12 +247,17 @@ pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> 
     let pending_events = crate::sms::winrt::drain_pending_sms();
     let delivery_reports = crate::sms::winrt::drain_delivery_reports();
 
-    // 2. 短锁批量去重入库
-    let list = db
+    // 2. 短锁批量去重入库并收集真正新增的消息
+    let newly_inserted = db
         .with(|conn| {
+            let mut inserted = Vec::new();
             for msg in pending_events {
                 if !inbox_exists_recent(conn, &msg.phone, &msg.content, msg.part_index)? {
-                    let _ = crate::messages::insert(conn, &msg);
+                    if let Ok(id) = crate::messages::insert(conn, &msg) {
+                        if let Ok(m) = crate::messages::get(conn, id) {
+                            inserted.push(m);
+                        }
+                    }
                 }
             }
             for r in &received {
@@ -280,7 +286,11 @@ pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> 
                         r.part_total,
                         group_id,
                     );
-                    let _ = crate::messages::insert(conn, &nm)?;
+                    if let Ok(id) = crate::messages::insert(conn, &nm) {
+                        if let Ok(m) = crate::messages::get(conn, id) {
+                            inserted.push(m);
+                        }
+                    }
                 }
             }
             for (raw_phone, status) in delivery_reports {
@@ -294,7 +304,7 @@ pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> 
                     let _ = crate::messages::set_status(conn, id, &status, None);
                 }
             }
-            crate::messages::list(conn, Some("in"), 200)
+            Ok(inserted)
         })
         .map_err(db_err)?;
 
@@ -307,7 +317,14 @@ pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> 
         }
     }
 
-    Ok(list)
+    Ok(newly_inserted)
+}
+
+/// 锁分离收件箱同步：返回全量收件箱列表（兼容 Command 接口与单测）
+pub fn sync_inbox_non_blocking(db: &DbState) -> Result<Vec<SmsMessage>, String> {
+    let _ = sync_inbox_newly_inserted(db)?;
+    db.with(|conn| crate::messages::list(conn, Some("in"), 200))
+        .map_err(db_err)
 }
 
 // ============================================================

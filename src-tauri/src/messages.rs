@@ -182,6 +182,20 @@ pub fn mark_message_read(db: State<'_, DbState>, id: i64) -> Result<(), String> 
     db.with(|c| mark_read(c, id)).map_err(map_err)
 }
 
+/// 批量标记某号码会话的所有未读消息为已读（单次 SQL 极速更新）
+#[tauri::command]
+pub fn mark_conversation_read(db: State<'_, DbState>, phone: String) -> Result<(), String> {
+    let norm = normalize_phone(&phone);
+    db.with(|conn| {
+        conn.execute(
+            "UPDATE messages SET status='read' WHERE direction='in' AND phone=?1 AND status!='read'",
+            rusqlite::params![norm],
+        )?;
+        Ok(())
+    })
+    .map_err(map_err)
+}
+
 // ============================================================
 // 单元测试
 // ============================================================

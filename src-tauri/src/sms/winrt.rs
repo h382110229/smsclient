@@ -643,21 +643,21 @@ pub fn subscribe_inbox_events(app_handle: tauri::AppHandle) -> Result<(), String
                     let msg = NewMessage::incoming_with_meta(
                         phone.clone(),
                         body.clone(),
-                        timestamp,
+                        timestamp.clone(),
                         is_long,
                         part_num,
                         part_count,
-                        group_id,
+                        group_id.clone(),
                     );
 
                     // 1. 立即通过短锁去重入库（确保前端任何页面收到事件后查询 DB 都有数据！）
-                    let mut inserted = false;
+                    let mut inserted_id: Option<i64> = None;
                     let mut notify_enabled = true;
                     let db = app_for_event.state::<crate::db::DbState>();
                     let _ = db.with(|conn| {
                         if !crate::sms::inbox_exists_recent(conn, &phone, &body, part_num).unwrap_or(false) {
-                            if crate::messages::insert(conn, &msg).is_ok() {
-                                inserted = true;
+                            if let Ok(id) = crate::messages::insert(conn, &msg) {
+                                inserted_id = Some(id);
                             }
                         }
                         notify_enabled = crate::settings::get(conn, "notify_enabled")
@@ -674,13 +674,18 @@ pub fn subscribe_inbox_events(app_handle: tauri::AppHandle) -> Result<(), String
                         buf.push(msg);
                     }
 
-                    if inserted {
-                        // 2. 通知前端刷新
+                    if let Some(id) = inserted_id {
+                        // 2. 通知前端刷新并携带完整分片与时间戳信息
                         let _ = app_for_event.emit(
                             "sms-received",
                             serde_json::json!({
+                                "id": id,
                                 "phone": phone,
                                 "content": body,
+                                "timestamp": timestamp.as_deref().unwrap_or_default(),
+                                "partIndex": part_num,
+                                "partTotal": part_count,
+                                "groupId": group_id,
                             }),
                         );
                         // 3. 弹出系统通知

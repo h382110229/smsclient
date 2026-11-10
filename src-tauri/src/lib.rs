@@ -91,9 +91,20 @@ pub fn run() {
 
                     // 首次后台同步 SIM 卡存量短信
                     let db = bg_app.state::<DbState>();
-                    if let Ok(added) = sms::sync_inbox_non_blocking(&db) {
-                        if !added.is_empty() {
-                            let _ = bg_app.emit("sms-received", ());
+                    if let Ok(new_msgs) = sms::sync_inbox_newly_inserted(&db) {
+                        for m in new_msgs {
+                            let _ = bg_app.emit(
+                                "sms-received",
+                                serde_json::json!({
+                                    "id": m.id,
+                                    "phone": m.phone,
+                                    "content": m.content,
+                                    "timestamp": m.timestamp,
+                                    "partIndex": m.part_index,
+                                    "partTotal": m.part_total,
+                                    "groupId": m.group_id,
+                                }),
+                            );
                         }
                     }
 
@@ -117,9 +128,21 @@ pub fn run() {
                         sms::winrt::ensure_event_subscribed(&bg_app);
 
                         let db = bg_app.state::<DbState>();
-                        if let Ok(msgs) = sms::sync_inbox_non_blocking(&db) {
-                            if !msgs.is_empty() {
-                                let _ = bg_app.emit("sms-received", ());
+                        // 关键修复（Gemini 4 Bug 1）：仅在真正从 SIM 卡拉取到新入库短信时才 emit，绝不在每 15 秒发射空事件
+                        if let Ok(new_msgs) = sms::sync_inbox_newly_inserted(&db) {
+                            for m in new_msgs {
+                                let _ = bg_app.emit(
+                                    "sms-received",
+                                    serde_json::json!({
+                                        "id": m.id,
+                                        "phone": m.phone,
+                                        "content": m.content,
+                                        "timestamp": m.timestamp,
+                                        "partIndex": m.part_index,
+                                        "partTotal": m.part_total,
+                                        "groupId": m.group_id,
+                                    }),
+                                );
                             }
                         }
                     }
@@ -142,6 +165,7 @@ pub fn run() {
             contacts::delete_contact,
             messages::get_sent,
             messages::mark_message_read,
+            messages::mark_conversation_read,
             settings::get_setting,
             settings::set_setting,
             broadcast::start_broadcast,
